@@ -33,8 +33,8 @@
  * The list is read again after a delete or a kernel update with the old one on screen: the
  * skeleton only stands in while no list of the Project has arrived yet.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import type { AgentSummary } from "@prismshadow/penguin-server/api";
 import {
