@@ -20,6 +20,7 @@
  * are listed and removed here, one by one — a plugin's uninstall from the Plugins page removes
  * its servers like its skills, and anyone who can edit the Agent's config could already rewrite
  * the whole list.
+ * Names outside the library resolve against enabled code plugins' contributed skills.
  *
  * Library and registry are two views of one kind of thing — a package of skills and/or
  * hooks. The library is what this build carries; the registry is what the deployment can
@@ -42,6 +43,7 @@ import {
   listInstalledWorkbenches,
   assertPluginMcpServersInstallable,
   installPlugin,
+  installSkill,
   listInstalledHooks,
   listInstalledMcpServers,
   listInstalledSkills,
@@ -52,7 +54,8 @@ import {
   parsePluginPackage,
   uninstallMcpServer,
 } from "@prismshadow/penguin-core";
-import type { PluginPackageManifest } from "@prismshadow/penguin-core";
+import type { PluginPackageManifest, LibraryPlugin } from "@prismshadow/penguin-core";
+import type { PluginSkills } from "../../plugin/skills.js";
 import type {
   AgentMcpServersResponse,
   AgentPluginsInstallResponse,
@@ -98,12 +101,13 @@ export interface PluginsRouteDeps {
   access: Access;
   agentConfigService: AgentConfig;
   manager: ManagerIface;
+  /** The skills enabled code plugins contribute (plugin/skills.ts): their package names install like library names. */
+  pluginSkills: Pick<PluginSkills, "resolve">;
 }
 import { HttpError } from "../errors.js";
 import { badRequest, optionalStringArray, readJson, requireValidId } from "../validate.js";
 import {
   pluginFiles,
-  resolveLibraryPlugins,
   toAgentMcpServerItem,
   toHookItem,
   toPluginItem,
@@ -208,15 +212,23 @@ export function agentPluginsRoutes(deps: PluginsRouteDeps): Hono<AppEnv> {
     await deps.agentConfigService.requireExists(projectId, agentId);
     const names = optionalStringArray(await readJson(c), "names") ?? [];
     if (names.length === 0) throw badRequest("names must be a non-empty array.");
-    // Verify every name up front before writing anything: an unknown name, or an MCP server
-    // name the Agent already has from someone else, rejects the whole request rather than
-    // leaving a half-installed state.
-    const plugins = resolveLibraryPlugins(names);
+    // Resolve all names and check MCP ownership before any installation writes.
+    const library: LibraryPlugin[] = [];
+    const rest: string[] = [];
+    for (const name of names) {
+      const plugin = libraryPlugin(name);
+      if (plugin !== undefined) library.push(plugin);
+      else rest.push(name);
+    }
+    const contributed = rest.length > 0 ? await deps.pluginSkills.resolve(rest) : [];
     const root = deps.config.root;
     await refusingTakenNames(async () => {
-      await assertPluginMcpServersInstallable(root, projectId, agentId, plugins);
-      await assertPluginWorkbenchesInstallable(root, projectId, agentId, plugins);
-      for (const plugin of plugins) await installPlugin(root, projectId, agentId, plugin);
+      await assertPluginMcpServersInstallable(root, projectId, agentId, library);
+      await assertPluginWorkbenchesInstallable(root, projectId, agentId, library);
+      for (const plugin of library) await installPlugin(root, projectId, agentId, plugin);
+      for (const plugin of contributed) {
+        for (const skill of plugin.skills) await installSkill(root, projectId, agentId, skill);
+      }
     });
     // Core reads hook packages when a model context opens: a conversation that is running
     // would keep the old set — or none — until its next compaction. Rebuilding the runtime
@@ -304,6 +316,7 @@ export class PluginRoutes {
   @Use() private readonly access!: Access;
   @Use() private readonly agentConfig!: AgentConfig;
   @Use() private readonly manager!: ManagerIface;
+  @Use() private readonly pluginSkills!: PluginSkills;
   @Bind("PluginRoutes.library") libraryRoutes!: Hono<AppEnv>;
   @Bind("PluginRoutes.agent-plugins") pluginRoutes!: Hono<AppEnv>;
   @Bind("PluginRoutes.agent-hooks") hookRoutes!: Hono<AppEnv>;
@@ -314,6 +327,7 @@ export class PluginRoutes {
       access: this.access,
       agentConfigService: this.agentConfig,
       manager: this.manager,
+      pluginSkills: this.pluginSkills,
     };
     this.libraryRoutes = pluginLibraryRoutes();
     this.pluginRoutes = agentPluginsRoutes(deps);

@@ -72,6 +72,7 @@ import {
   type PluginRequirement,
   type PluginTables,
 } from "@prismshadow/penguin-core";
+import type { SkillMetadataItem } from "../../api/types.js";
 import type { Config, Db, Hmr, Reassembly, ReassemblyChange } from "../../hmr/capabilities.js";
 import {
   discoverBuiltinPlugins,
@@ -93,6 +94,8 @@ import {
 import { parsePluginSource, type PluginSource } from "../../plugin/source.js";
 import { parsePluginArchive } from "../../services/plugin-archive.js";
 import { PluginHost, pluginHostFrom, PLUGINS_RESOURCE_ID } from "../../plugin/host.js";
+import type { PluginSkills } from "../../plugin/skills.js";
+import { toSkillItem } from "../../services/plugin-library.js";
 import { Access, ProjectConfigStore } from "../../mechanisms/projects.js";
 import type { Machines } from "../../machines/service.js";
 import { MachinesRepo } from "../../db/repos/machines.js";
@@ -112,6 +115,11 @@ export interface InstalledPluginsDeps {
   };
   projectConfig: ProjectConfigStore;
   access: Access;
+  /**
+   * The skills the enabled code plugins contribute, by package specifier (plugin/skills.ts),
+   * metadata only — what an active row offers as installable onto an Agent.
+   */
+  contributed: () => Promise<ReadonlyMap<string, SkillMetadataItem[]>>;
   /**
    * Writes the change and re-assembles the App on it. Answers whether the running tree is
    * the new one; false when its boot failed (the change is then undone and the previous
@@ -163,6 +171,7 @@ export function installedPluginRoutes(deps: InstalledPluginsDeps): Hono<AppEnv> 
       ]),
     ];
     const { loaded, skipped, unsatisfied } = deps.running();
+    const contributed = await deps.contributed();
     const bases = pluginBases(deps.root, deps.assetsDir());
     // `builtin` on a row is where the package CAME FROM, a tag, not a second way of being
     // asked for. What the package declares is read from its files; whether the process holds
@@ -196,6 +205,9 @@ export function installedPluginRoutes(deps: InstalledPluginsDeps): Hono<AppEnv> 
       const unmet = where.here ? unsatisfied.get(specifier) : undefined;
       const active = where.here && loaded.has(specifier) && unmet?.disabled !== true;
       const failure = where.here ? skipped.get(specifier) : undefined;
+      // The installable list: only what the process actually runs, so a plugin that stopped
+      // running (left out, failed to load) stops offering its skills with it.
+      const skills = active ? contributed.get(specifier) : undefined;
       plugins.push({
         specifier,
         active,
@@ -206,6 +218,7 @@ export function installedPluginRoutes(deps: InstalledPluginsDeps): Hono<AppEnv> 
         ...(unmet !== undefined
           ? { unsatisfied: { disabled: unmet.disabled, reason: unmet.reason } }
           : {}),
+        ...(skills !== undefined ? { skills } : {}),
         ...where,
       });
     }
@@ -592,9 +605,11 @@ export class InstalledPluginRoutes {
   @Use() private readonly machines!: Machines;
   @Use() private readonly db!: Db;
   @Use() private readonly packages!: PluginPackages;
+  @Use() private readonly pluginSkills!: PluginSkills;
   @Bind("InstalledPluginRoutes.routes") routes!: Hono<AppEnv>;
   setup() {
     const hmr = this.hmr;
+    const pluginSkills = this.pluginSkills;
     this.routes = installedPluginRoutes({
       root: this.config.root,
       machineId: new MachinesRepo(this.db as unknown as DatabaseSync).ownId(),
@@ -609,6 +624,15 @@ export class InstalledPluginRoutes {
           // A host registered by a generation older than this record has none to give.
           unsatisfied: typeof host.unsatisfied === "function" ? host.unsatisfied() : new Map(),
         };
+      },
+      // The contributed skills are the enabled code plugins' own files, projected through the
+      // shared allowlist like every skill listing (plugin-library.ts).
+      contributed: async () => {
+        const out = new Map<string, SkillMetadataItem[]>();
+        for (const { specifier, skills } of await pluginSkills.list()) {
+          out.set(specifier, skills.map(toSkillItem));
+        }
+        return out;
       },
       projectConfig: this.projectConfig,
       access: this.access,
