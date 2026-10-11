@@ -19,10 +19,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { parseManifest } from "@prismshadow/penguin-core/kernel";
 import { skillsDir } from "@prismshadow/penguin-core";
-import type {
-  AgentPluginsInstallResponse,
-  InstalledPluginsResponse,
-} from "../src/api/types.js";
+import type { AgentPluginsInstallResponse, InstalledPluginsResponse } from "../src/api/types.js";
 import { PluginHost } from "../src/plugin/host.js";
 import type { PluginSkills } from "../src/plugin/skills.js";
 import { apiClient, createTestApp, loginAdmin, makeTempRoot } from "./helpers.js";
@@ -163,9 +160,7 @@ describe("plugin skills (the contributes slot)", () => {
   it("installs a declared skill onto an Agent through the plugin install route, verbatim", async () => {
     const file = await packageOnDisk({ "good-skill": GOOD });
     t = await createTestApp({
-      plugins: declaring([
-        { file, entries: [{ id: "acme.good", path: "skills/good-skill" }] },
-      ]),
+      plugins: declaring([{ file, entries: [{ id: "acme.good", path: "skills/good-skill" }] }]),
     });
     const admin = apiClient(t.app, (await loginAdmin(t.app)).cookie);
     const res = await admin.post("/api/projects/default_project/agents/default_agent/plugins", {
@@ -199,9 +194,9 @@ describe("plugin skills (the contributes slot)", () => {
     expect(res.status).toBe(404);
     expect(await res.json()).toMatchObject({ error: { code: "unknown_plugin" } });
     // Nothing was written: every name is resolved before anything installs.
-    expect(
-      await fs.readdir(skillsDir(t.root, "default_project", "default_agent")),
-    ).not.toContain("good-skill");
+    expect(await fs.readdir(skillsDir(t.root, "default_project", "default_agent"))).not.toContain(
+      "good-skill",
+    );
   });
 
   it("offers the skills on an enabled plugin's row, and stops offering once no Project lists it", async () => {
@@ -244,8 +239,8 @@ describe("plugin skills (the contributes slot)", () => {
     await fs.writeFile(
       path.join(dir, "index.js"),
       lower(`
-        import { Component } from ${JSON.stringify(decorators)};
-        @Component({
+        import { Module } from ${JSON.stringify(decorators)};
+        @Module({
           contributes: {
             "PluginSkillsProvider.skills": [{ id: "acme.good", path: "skills/good-skill" }],
           },
@@ -276,9 +271,9 @@ describe("plugin skills (the contributes slot)", () => {
     expect(on.plugins.find((p) => p.specifier === "@acme/skills-pkg")).toMatchObject({
       active: true,
     });
-    expect(
-      (on.plugins.find((p) => p.specifier === "@acme/skills-pkg")?.skills ?? []),
-    ).toEqual([{ name: "good-skill", description: "Makes a tune.", version: "" }]);
+    expect(on.plugins.find((p) => p.specifier === "@acme/skills-pkg")?.skills ?? []).toEqual([
+      { name: "good-skill", description: "Makes a tune.", version: "" },
+    ]);
 
     // Installable through the plugin install route, by the package name, onto the Agent.
     const installed = await admin.post(
@@ -307,9 +302,11 @@ describe("plugin skills (the contributes slot)", () => {
       names: ["@acme/skills-pkg"],
     });
     expect(refused.status).toBe(404);
-    expect(await fs.readFile(
-      path.join(skillsDir(t.root, "default_project", "default_agent"), "good-skill", "SKILL.md"),
-      "utf8",
-    )).toBe(GOOD);
+    expect(
+      await fs.readFile(
+        path.join(skillsDir(t.root, "default_project", "default_agent"), "good-skill", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe(GOOD);
   });
 });

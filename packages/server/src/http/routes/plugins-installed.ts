@@ -61,6 +61,7 @@ import type {
   InstalledPluginsResponse,
   PluginInstallOutcome,
   UnsatisfiedPlugin,
+  SkillMetadataItem,
 } from "../../api/types.js";
 import { HttpError } from "../errors.js";
 import { readJson, requireString, requireValidId } from "../validate.js";
@@ -72,7 +73,6 @@ import {
   type PluginRequirement,
   type PluginTables,
 } from "@prismshadow/penguin-core";
-import type { SkillMetadataItem } from "../../api/types.js";
 import type { Config, Db, Hmr, Reassembly, ReassemblyChange } from "../../hmr/capabilities.js";
 import {
   discoverBuiltinPlugins,

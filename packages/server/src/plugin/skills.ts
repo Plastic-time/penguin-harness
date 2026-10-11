@@ -128,9 +128,10 @@ function packageDirOf(entry: LoadedPlugin, root: string, assetsDir: string | nul
   if (resolved !== null) return { dir: resolved.dir, why: "" };
   return {
     dir: null,
-    why: entry.file != null
-      ? `no package.json above ${entry.file}, and the current plugin generation does not hold '${entry.specifier}'`
-      : `the current plugin generation does not hold '${entry.specifier}'`,
+    why:
+      entry.file != null
+        ? `no package.json above ${entry.file}, and the current plugin generation does not hold '${entry.specifier}'`
+        : `the current plugin generation does not hold '${entry.specifier}'`,
   };
 }
 
@@ -216,53 +217,68 @@ export class PluginSkillsProvider {
   @Provide() pluginSkills!: PluginSkills;
 
   setup({ contributions }: ClassCtx) {
-    // The plugin packages behind the contributing modules: the host this process loaded,
-    // claimed the way the installed-plugins route claims it — the same object across swaps.
-    const host = pluginHostFrom(this.hmr.resources);
-    const packageOf = new Map<string, { specifier: string; dir: string | null; why: string }>();
-    for (const entry of host.entries().values()) {
-      const found = packageDirOf(entry, this.config.root, this.hmr.assetsDir());
-      for (const module of entry.modules) {
-        packageOf.set(module.manifest.name, { specifier: entry.specifier, ...found });
+    const declared = () => {
+      // The plugin packages behind the contributing modules: the host this process loaded,
+      // claimed the way the installed-plugins route claims it — the same object across swaps.
+      const host = pluginHostFrom(this.hmr.resources);
+      const packageOf = new Map<string, { specifier: string; dir: string | null; why: string }>();
+      for (const entry of host.entries().values()) {
+        const found = packageDirOf(entry, this.config.root, this.hmr.assetsDir());
+        for (const module of entry.modules) {
+          packageOf.set(module.manifest.name, { specifier: entry.specifier, ...found });
+        }
       }
-    }
-    const packages: DeclaredPackage[] = [];
-    const bySpecifier = new Map<string, DeclaredPackage>();
-    for (const c of contributions.skills ?? []) {
-      // The kernel checked the entry against the slot's type at boot: `path` is a string.
-      const { path: decl } = c.data as unknown as PluginSkillDecl;
-      const name = decl.split("/").at(-1) ?? "";
-      const from = packageOf.get(c.from);
-      const why =
-        from === undefined
-          ? `module '${c.from}' contributes skills but no loaded plugin package is behind it`
-          : from.dir === null
-            ? from.why
-            : !staysInsidePackage(decl)
-              ? `'${decl}' does not stay inside the package`
-              : !PLUGIN_NAME_PATTERN.test(name)
-                ? `'${decl}' does not end in a skill name (letters, digits, "_" and "-")`
-                : null;
-      if (why !== null) {
-        // One malformed declaration drops that skill, not the plugin and not the boot.
-        console.warn(`[plugin-skills] '${c.from}' contribution '${c.id}' skipped: ${why}`);
-        continue;
+      const packages: DeclaredPackage[] = [];
+      const bySpecifier = new Map<string, DeclaredPackage>();
+      for (const c of contributions.skills ?? []) {
+        // The kernel checked the entry against the slot's type at boot: `path` is a string.
+        const { path: decl } = c.data as unknown as PluginSkillDecl;
+        const name = decl.split("/").at(-1) ?? "";
+        const from = packageOf.get(c.from);
+        const why =
+          from === undefined
+            ? `module '${c.from}' contributes skills but no loaded plugin package is behind it`
+            : from.dir === null
+              ? from.why
+              : !staysInsidePackage(decl)
+                ? `'${decl}' does not stay inside the package`
+                : !PLUGIN_NAME_PATTERN.test(name)
+                  ? `'${decl}' does not end in a skill name (letters, digits, "_" and "-")`
+                  : null;
+        if (why !== null) {
+          // One malformed declaration drops that skill, not the plugin and not the boot.
+          console.warn(`[plugin-skills] '${c.from}' contribution '${c.id}' skipped: ${why}`);
+          continue;
+        }
+        const pkg =
+          bySpecifier.get(from!.specifier!) ??
+          (() => {
+            const next: DeclaredPackage = {
+              specifier: from!.specifier!,
+              dir: from!.dir!,
+              declarations: [],
+            };
+            bySpecifier.set(next.specifier, next);
+            packages.push(next);
+            return next;
+          })();
+        pkg.declarations.push({ id: c.id, path: decl, name });
       }
-      const pkg =
-        bySpecifier.get(from!.specifier!) ??
-        (() => {
-          const next: DeclaredPackage = { specifier: from!.specifier!, dir: from!.dir!, declarations: [] };
-          bySpecifier.set(next.specifier, next);
-          packages.push(next);
-          return next;
-        })();
-      pkg.declarations.push({ id: c.id, path: decl, name });
-    }
+      return { packages, bySpecifier };
+    };
     /** The plugin's declared skills as they sit on disk, each unreadable one skipped with its reason. */
-    const read = async (pkg: DeclaredPackage, withPayload: boolean): Promise<ContributedSkill[]> => {
+    const read = async (
+      pkg: DeclaredPackage,
+      withPayload: boolean,
+    ): Promise<ContributedSkill[]> => {
       const skills: ContributedSkill[] = [];
       for (const declaration of pkg.declarations) {
-        const read = await readDeclaredSkill(pkg.dir, declaration.name, declaration.path, withPayload);
+        const read = await readDeclaredSkill(
+          pkg.dir,
+          declaration.name,
+          declaration.path,
+          withPayload,
+        );
         if ("skip" in read) {
           console.warn(
             `[plugin-skills] '${pkg.specifier}' skill '${declaration.id}' (${declaration.path}) skipped: ${read.skip}`,
@@ -276,14 +292,17 @@ export class PluginSkillsProvider {
     this.pluginSkills = {
       async list() {
         const out: Array<{ specifier: string; skills: ContributedSkillMeta[] }> = [];
-        for (const pkg of packages) {
-          const skills = (await read(pkg, false)).map(({ content: _c, files: _f, ...meta }) => meta);
+        for (const pkg of declared().packages) {
+          const skills = (await read(pkg, false)).map(
+            ({ content: _c, files: _f, ...meta }) => meta,
+          );
           if (skills.length > 0) out.push({ specifier: pkg.specifier, skills });
         }
         return out;
       },
       async resolve(names) {
         const out: ContributedPlugin[] = [];
+        const { bySpecifier } = declared();
         for (const name of names) {
           const pkg = bySpecifier.get(name);
           if (pkg === undefined) {
