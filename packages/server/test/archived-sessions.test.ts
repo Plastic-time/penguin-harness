@@ -65,7 +65,39 @@ describe("the archive page", () => {
     t = await createTestApp();
   });
   afterAll(async () => {
-    await t.cleanup();
+    const starts = new Map<string, bigint>();
+    const record = (stage: string, phase: "start" | "end" | "failure", error?: unknown) => {
+      // Diagnostic output must not replace a cleanup exception or interrupt disposal.
+      try {
+        const now = process.hrtime.bigint();
+        if (phase === "start") starts.set(stage, now);
+        const start = starts.get(stage);
+        const failure = error as { name?: unknown; code?: unknown } | null | undefined;
+        console.error("[archived-cleanup-probe] " + JSON.stringify({
+          suite: "the archive page",
+          pid: process.pid,
+          command: process.env.ARCHIVED_CLEANUP_COMMAND,
+          node: process.version,
+          execPath: process.execPath,
+          stage,
+          phase,
+          monotonicNs: now.toString(),
+          elapsedNs: start === undefined ? null : (now - start).toString(),
+          errorName: typeof failure?.name === "string" ? failure.name : null,
+          errorCode: typeof failure?.code === "string" ? failure.code : null,
+        }));
+      } catch {
+        // Logging is best effort; missing records remain an observation gap.
+      }
+    };
+    record("cleanup", "start");
+    try {
+      await t.cleanup(record);
+      record("cleanup", "end");
+    } catch (error) {
+      record("cleanup", "failure", error);
+      throw error;
+    }
   });
 
   /** A fresh owner, peer and stranger, and the three Projects described in the header. */

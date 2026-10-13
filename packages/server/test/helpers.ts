@@ -262,7 +262,7 @@ export interface TestApp {
   root: string;
   /** Initial password of the seeded admin (TEST_ADMIN_PASSWORD unless overridden via `config.seedAdminPassword`). */
   adminPassword: string;
-  cleanup(): Promise<void>;
+  cleanup(probe?: (stage: string, phase: "start" | "end" | "failure", error?: unknown) => void): Promise<void>;
 }
 
 /**
@@ -431,17 +431,34 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     deps,
     root,
     adminPassword,
-    cleanup: async () => {
-      // Terminals are real child processes owned by the platform: disposing the hot host
-      // sweeps its resource registry, which is where every live pty is registered.
-      deps.hmr.dispose();
-      deps.channels.dispose();
-      deps.db.close();
-      // maxRetries: Windows can report ENOTEMPTY/EBUSY while handles from the test's own
-      // just-closed files (SQLite, trace writers) are still being released — Node's rm
-      // retries these codes with a delay. A plain rm was the top cause of ci-windows
-      // cascades (cleanup throws → hook timeout → "database is not open" in later files).
-      await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    cleanup: async (probe) => {
+      let stage = "hmr.dispose";
+      try {
+        probe?.(stage, "start");
+        // Terminals are real child processes owned by the platform: disposing the hot host
+        // sweeps its resource registry, which is where every live pty is registered.
+        deps.hmr.dispose();
+        probe?.(stage, "end");
+        stage = "channels.dispose";
+        probe?.(stage, "start");
+        deps.channels.dispose();
+        probe?.(stage, "end");
+        stage = "db.close";
+        probe?.(stage, "start");
+        deps.db.close();
+        probe?.(stage, "end");
+        // maxRetries: Windows can report ENOTEMPTY/EBUSY while handles from the test's own
+        // just-closed files (SQLite, trace writers) are still being released — Node's rm
+        // retries these codes with a delay. A plain rm was the top cause of ci-windows
+        // cascades (cleanup throws → hook timeout → "database is not open" in later files).
+        stage = "fs.rm";
+        probe?.(stage, "start");
+        await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+        probe?.(stage, "end");
+      } catch (error) {
+        probe?.(stage, "failure", error);
+        throw error;
+      }
     },
   };
 }
