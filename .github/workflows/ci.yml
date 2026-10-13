@@ -22,6 +22,7 @@ jobs:
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           test "$(git rev-parse HEAD)" = "4554d80fe12c59935cb846e2d01152aa14042d04"
+          git fetch --depth=2 origin 4554d80fe12c59935cb846e2d01152aa14042d04
           test "$(git rev-parse 'HEAD^')" = "aae7857f0c2141e7d58095ad6991ac598cf57cdf"
           test "$(git rev-parse 'HEAD^{tree}')" = "7c657a339a579e62f2a9cc100182d529801254d7"
           test -z "$(git status --porcelain)"
