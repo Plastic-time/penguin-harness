@@ -113,7 +113,6 @@ import {
   type ActivityKey,
   type StreamPosition,
 } from "../lib/session-grouping";
-import type { ActivityKey, StreamPosition } from "../lib/session-grouping";
 import {
   isCurrentProject,
   ofProject,
