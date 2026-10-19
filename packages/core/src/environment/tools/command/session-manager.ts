@@ -238,6 +238,8 @@ export class CommandSessionManager {
   private readonly workspaceDir: string | undefined;
   /** The Session's scratchpad, bound into every confiner call as `opts.scratchpadDir`: writable beside the Workspace under a workspace-write policy. */
   private readonly scratchpadDir: string | undefined;
+  /** The Agent's per-agent root, bound into every confiner call as `opts.stateRoot`: read-only under a `stateReadonly` policy. */
+  private readonly stateRoot: string | undefined;
 
   constructor(opts?: {
     vault?: Record<string, string>;
@@ -247,6 +249,7 @@ export class CommandSessionManager {
     confineSpawn?: () => SpawnConfiner | null;
     workspaceDir?: string;
     scratchpadDir?: string;
+    stateRoot?: string;
   }) {
     this.vault = opts?.vault ?? {};
     this.proxyEnv = opts?.proxyEnv;
@@ -255,6 +258,7 @@ export class CommandSessionManager {
     this.confineSpawn = opts?.confineSpawn;
     this.workspaceDir = opts?.workspaceDir;
     this.scratchpadDir = opts?.scratchpadDir;
+    this.stateRoot = opts?.stateRoot;
     this.registry.onChange(() => this.changeListener?.());
   }
 
@@ -303,6 +307,7 @@ export class CommandSessionManager {
                 cwd: o.cwd,
                 workspaceDir: this.workspaceDir ?? o.cwd,
                 ...(this.scratchpadDir !== undefined ? { scratchpadDir: this.scratchpadDir } : {}),
+                ...(this.stateRoot !== undefined ? { stateRoot: this.stateRoot } : {}),
               }),
           }
         : {}),

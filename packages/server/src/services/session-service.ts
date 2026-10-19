@@ -86,10 +86,15 @@ export function sessionSandboxOf(
   const advanced = masksPaths || policy.writableTemp === false;
   const above = (p: SessionSandboxPreset) =>
     ceiling !== undefined &&
-    aboveSandboxCeiling(p, { mode: ceiling.mode, network: networkOf(ceiling) }) !== null;
+    aboveSandboxCeiling(p, {
+      mode: ceiling.mode,
+      network: networkOf(ceiling),
+      ...(ceiling.stateReadonly === true ? { stateReadonly: true } : {}),
+    }) !== null;
   return {
     mode: policy.mode,
     network: networkOf(policy),
+    ...(policy.stateReadonly === true ? { stateReadonly: true } : {}),
     confinementSupported: dimensions.includes("fs-write"),
     noNetworkSupported: dimensions.includes("network"),
     localNetworkSupported: dimensions.includes("network-local"),
@@ -118,6 +123,7 @@ export function applySandboxPick(
 ): SandboxSettings {
   const mode = pick.mode ?? base.mode;
   const network = pick.network ?? networkOf(base);
+  const stateReadonly = pick.stateReadonly ?? base.stateReadonly;
   // Picking a level no backend here can enforce would make every command fail closed; say so
   // now instead. A policy that already holds it (a backend went away) fails at the command.
   if (pick.network === "local" && !localNetworkSupported) {
@@ -129,8 +135,12 @@ export function applySandboxPick(
   }
   if (!isAdmin) {
     const above = aboveSandboxCeiling(
-      { mode, network },
-      { mode: defaults.mode, network: networkOf(defaults) },
+      { mode, network, ...(stateReadonly === true ? { stateReadonly: true } : {}) },
+      {
+        mode: defaults.mode,
+        network: networkOf(defaults),
+        ...(defaults.stateReadonly === true ? { stateReadonly: true } : {}),
+      },
     );
     if (above === "mode") {
       throw new HttpError(
@@ -146,9 +156,22 @@ export function applySandboxPick(
         `Only an administrator can give a Session more network access than the server's sandbox settings (${networkOf(defaults)}).`,
       );
     }
+    if (above === "state") {
+      throw new HttpError(
+        403,
+        "sandbox_forbidden",
+        "Only an administrator can give a Session a writable agent state: the server's sandbox settings hold it read-only.",
+      );
+    }
   }
-  const { network: _dropped, ...rest } = base;
-  return { ...rest, mode, ...(network === "open" ? {} : { network }) };
+  // `network` and `stateReadonly` park in their canonical spellings: open/unset are absence.
+  const { network: _dropped, stateReadonly: _droppedFlag, ...rest } = base;
+  return {
+    ...rest,
+    mode,
+    ...(network === "open" ? {} : { network }),
+    ...(stateReadonly === true ? { stateReadonly: true } : {}),
+  };
 }
 
 const SESSION_ID_TS_RE = /^session-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-[0-9a-f]{8}$/;

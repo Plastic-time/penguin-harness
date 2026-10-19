@@ -118,29 +118,39 @@ export function prePresetStartOf(
   return { policy, ...(row !== undefined ? { row: row.id } : {}) };
 }
 
-/** The start one row gives: its file mode and network with the card's extras, and its approval mode. */
+/** The start one row gives: its file mode, network, state-readonly flag and approval mode, with the card's extras. */
 function presetStartOf(preset: SessionSandboxPreset, doc: Record<string, unknown>): SandboxStart {
   const { approvalMode } = preset;
-  if (preset.mode === "danger-full-access" && preset.network === "open") {
+  // A row that confines nothing in the file system and the network is unconfined ONLY when it
+  // holds no further promise either: a row that keeps the state read-only still needs a
+  // backend, and answering "unconfined" here would silently drop that promise (the widened
+  // direction the interface forbids).
+  if (
+    preset.mode === "danger-full-access" &&
+    preset.network === "open" &&
+    preset.stateReadonly !== true
+  ) {
     return { policy: UNCONFINED, approvalMode };
   }
   return {
     policy: {
       mode: preset.mode,
       ...(preset.network !== "open" ? { network: preset.network } : {}),
+      ...(preset.stateReadonly === true ? { stateReadonly: true } : {}),
       ...extrasOf(doc),
     },
     approvalMode,
   };
 }
 
-/** Whether two policies confine alike: mode, network, temp directory and masked paths. */
+/** Whether two policies confine alike: mode, network, temp directory, state root and masked paths. */
 function samePolicy(a: Policy, b: Policy): boolean {
   const masks = (p: Policy) => p.maskPaths ?? [];
   return (
     a.mode === b.mode &&
     (a.network ?? "open") === (b.network ?? "open") &&
     (a.writableTemp === false) === (b.writableTemp === false) &&
+    (a.stateReadonly === true) === (b.stateReadonly === true) &&
     masks(a).length === masks(b).length &&
     masks(a).every((path, i) => path === masks(b)[i])
   );
@@ -222,5 +232,6 @@ export function sandboxPresetsOf(
     mode: values.mode as SessionSandboxPreset["mode"],
     network: values.network as SessionSandboxPreset["network"],
     approvalMode: values.approvalMode as SessionSandboxPreset["approvalMode"],
+    ...(values.stateReadonly === true ? { stateReadonly: true } : {}),
   }));
 }

@@ -18,21 +18,22 @@
  *
  * The backends shipped in this repo:
  *
- *   plugin                            platform   fs-write  network  mask-paths
- *   @penguinharness/sandbox-bwrap     Linux      yes       yes      yes
- *   @penguinharness/sandbox-seatbelt  macOS      yes       yes      yes
- *   @penguinharness/sandbox-wsl       Windows    yes       yes      yes
- *   @penguinharness/sandbox-dsh       all three  yes       —        —
+ *   plugin                            platform   fs-write  network  mask-paths  readonly-roots
+ *   @penguinharness/sandbox-bwrap     Linux      yes       yes      yes         yes
+ *   @penguinharness/sandbox-seatbelt  macOS      yes       yes      yes         —
+ *   @penguinharness/sandbox-wsl       Windows    yes       yes      yes         yes
+ *   @penguinharness/sandbox-dsh       all three  yes       —        —           Landlock rung
  *
- * The DSH adaptor is the portable floor covering file effects only (its own chain picks
- * bwrap/Landlock, Seatbelt or the Windows ACL runner per host); the three native
- * backends add the other two dimensions, one per platform, and serve every policy they cover
- * when the adaptor is mounted beside them. On Linux the adaptor is the floor where bubblewrap
- * is refused (Ubuntu 23.10 and later restrict unprivileged user namespaces to AppArmor-profiled
- * programs): it confines files through Landlock, which needs neither. Windows is served by bubblewrap
- * inside a dedicated WSL2 distro, so commands there run in Linux (see sandbox-wsl's README).
- * Where none implements a requested dimension, service.ts fails closed naming what each
- * covers rather than quietly confining less than was asked.
+ * The DSH adaptor is the portable floor covering file effects (read-only roots too, but only
+ * on its Landlock rung; its own chain picks bwrap/Landlock, Seatbelt or the Windows ACL runner
+ * per host); the three native backends add the other dimensions, one per platform, and serve
+ * every policy they cover when the adaptor is mounted beside them. On Linux the adaptor is the
+ * floor where bubblewrap is refused (Ubuntu 23.10 and later restrict unprivileged user
+ * namespaces to AppArmor-profiled programs): it confines files through Landlock, which needs
+ * neither. Windows is served by bubblewrap inside a dedicated WSL2 distro, so commands there
+ * run in Linux (see sandbox-wsl's README). Where none implements a requested dimension,
+ * service.ts fails closed naming what each covers rather than quietly confining less than
+ * was asked.
  */
 export { SandboxService } from "./service.js";
 export { SANDBOX_DIMENSIONS, providerDimensions, requestedDimensions } from "./dimensions.js";

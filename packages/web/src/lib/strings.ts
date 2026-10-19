@@ -3821,6 +3821,7 @@ Benchmark：
       needsNoBackend: "不需要沙盒后端。",
       effects: {
         "write-outside-workspace": "写工作区之外",
+        "write-own-state": "写 Agent 自身的状态（记忆、指示文件与定时任务保持只读）",
         "write-anywhere": "写任何文件",
         network: "全部网络",
         "network-beyond-localhost": "本机 localhost 之外的网络",

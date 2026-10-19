@@ -10,11 +10,11 @@
  * our interface; routing and settings are the harness's behavior, tested there.
  */
 import { afterAll, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { CommandSessionManager } from "@prismshadow/penguin-core";
-import type { SandboxProvider } from "@prismshadow/penguin-core/plugin";
+import type { SandboxPolicy, SandboxProvider } from "@prismshadow/penguin-core/plugin";
 import { loadDshAdaptor } from "../src/index.js";
 import { mustRun } from "../../../scripts/must-run.mjs";
 
@@ -106,10 +106,51 @@ const usable = mustRun(
 const DENIED =
   /permission denied|read-only file system|operation not permitted|access is denied|access to the path .* is denied/i;
 
+// The read-only state root is Landlock's alone, so its live proof is rung-gated: on a host
+// whose chain picked the bubblewrap rung, that rung winning the chain's probe proves nothing
+// about Landlock — the suite says so and skips (such a host runs the bwrap plugin's own live
+// suite instead). Read by a host check that wants to see which rung a CI runner reached.
+const mechanism = provider?.mechanism ?? loadError;
+const landlock = usable && /^Landlock( \(partial\))?$/.test(mechanism);
+if (usable && !landlock) {
+  console.log(
+    `sandbox-dsh state-read-only suite skipped: the chain picked ${mechanism}, not Landlock`,
+  );
+}
+
+// The state root sits under the read-only home, not the workspace or /tmp, with the
+// session's scratchpad carved out of it — the deployment's ordinary layout. The launcher
+// opens every grant root, so the directories exist before any confine.
+const stateRoot = mkdtempSync(path.join(homedir(), "penguin-dsh-state-"));
+writeFileSync(path.join(stateRoot, "marker.txt"), "dsh-state-marker");
+const stateScratchpad = path.join(stateRoot, "scratchpad", "session-1");
+mkdirSync(stateScratchpad, { recursive: true });
+
+/** null = spawn unconfined; otherwise confine under this whole policy. */
+let statePolicy: SandboxPolicy | null = null;
+const stateMgr = new CommandSessionManager({
+  confineSpawn: () => (argv, opts) =>
+    statePolicy === null || provider === null
+      ? { argv }
+      : provider.confine(argv, { ...statePolicy, workspaceRoot: opts.workspaceDir }),
+  workspaceDir: ws,
+});
+
+/** A command through the state manager, under the module-level `statePolicy` above. */
+async function runState(cmd: string): Promise<{ code: number | null; out: string }> {
+  const session = stateMgr.spawn({ cmd, cwd: ws });
+  let out = "";
+  for await (const chunk of session.collect(15000)) out += chunk;
+  if (session.running) session.kill();
+  return { code: session.exit?.code ?? null, out };
+}
+
 afterAll(() => {
   mgr.dispose();
+  stateMgr.dispose();
   rmSync(ws, { recursive: true, force: true });
   rmSync(outsideProbe, { force: true });
+  rmSync(stateRoot, { recursive: true, force: true });
 });
 
 describe.skipIf(!usable)("DSH adaptor live enforcement (host-gated)", () => {
@@ -159,3 +200,74 @@ describe.skipIf(!usable)("DSH adaptor live enforcement (host-gated)", () => {
     rmSync(outsideProbe, { force: true });
   });
 });
+
+describe.skipIf(!landlock)(
+  "DSH adaptor under Landlock: the read-only state root (rung-gated)",
+  () => {
+    /** A confined `echo` that must reach the host file with this content. */
+    async function writes(file: string, text: string) {
+      const r = await runState(`echo ${text.trim()} > ${JSON.stringify(file)}`);
+      expect(r.code, r.out).toBe(0);
+      expect(readFileSync(file, "utf8")).toBe(text);
+    }
+
+    /** A confined write that the rung must deny, leaving nothing on the host. */
+    async function denied(target: string) {
+      const r = await runState(`echo leak > ${JSON.stringify(target)} 2>&1; echo exit=$?`);
+      expect(r.out).toMatch(DENIED);
+      expect(existsSync(target)).toBe(false);
+    }
+
+    /** A confined read of a file inside the state root. */
+    async function reads(file: string, marker: string) {
+      const r = await runState(`cat ${JSON.stringify(file)}`);
+      expect(r.code, r.out).toBe(0);
+      expect(r.out).toContain(marker);
+    }
+
+    it("holds the agent state read-only: the workspace and the scratchpad write — the capability this file splices in — the state root does not, and it stays readable", async () => {
+      statePolicy = {
+        mode: "workspace-write",
+        workspaceRoot: ws,
+        readonlyRoots: [stateRoot],
+        writableRoots: [stateScratchpad],
+      };
+      const r = await runState("echo dsh-ws-ok > dsh-ws.txt && cat dsh-ws.txt");
+      expect(r.code, r.out).toBe(0);
+      expect(r.out).toContain("dsh-ws-ok");
+      expect(existsSync(path.join(ws, "dsh-ws.txt"))).toBe(true);
+      await writes(path.join(stateScratchpad, "pad.txt"), "pad\n");
+      await denied(path.join(stateRoot, "leak.txt"));
+      await reads(path.join(stateRoot, "marker.txt"), "dsh-state-marker");
+    });
+
+    it("a state root inside the workspace cannot be expressed: the confine throws, nothing runs", () => {
+      expect(() =>
+        provider!.confine(["bash", "-lc", "echo ran > ran.txt"], {
+          mode: "workspace-write",
+          workspaceRoot: ws,
+          readonlyRoots: [path.join(ws, "state-in-ws")],
+          writableRoots: [stateScratchpad],
+        }),
+      ).toThrow(/cannot hold .* read-only under Landlock/);
+      expect(existsSync(path.join(ws, "ran.txt"))).toBe(false);
+    });
+  },
+);
+
+describe.skipIf(!usable || landlock)(
+  "DSH adaptor off Landlock: a read-only state root is refused, not dropped (rung-gated)",
+  () => {
+    it("every other rung throws on a readonly-roots policy rather than running the state writable", () => {
+      // An absolute program the ACL runner can start (a bare `true` is refused on Windows
+      // before this file's own refusal is reached).
+      expect(() =>
+        provider!.confine([process.execPath], {
+          mode: "workspace-write",
+          workspaceRoot: ws,
+          readonlyRoots: [stateRoot],
+        }),
+      ).toThrow(/only the Landlock rung has a vocabulary for it/);
+    });
+  },
+);

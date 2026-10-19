@@ -12,8 +12,13 @@
  * Linux, Seatbelt on macOS, the ACL restricted-token runner on Windows) and probes them
  * functionally; this file translates between its vocabulary and ours. Because DSH's
  * policy vocabulary governs file-write effects only, the adaptor declares exactly
- * `fs-write` — the service therefore never routes a network / mask-paths policy here,
- * and the adaptor never has to drop a dimension it cannot honor.
+ * `fs-write` — except under the Landlock rung, which this file extends: Landlock is an
+ * allow-list, so a read-only state root needs no new rule (nothing grants it a write), and
+ * the launcher's own flag vocabulary — `grantArgs`, imported behind the same dynamic-import
+ * rule as everything else DSH — lets the adaptor splice the policy's writable roots (the
+ * Session's scratchpad) into the grants. The service therefore routes a `readonly-roots`
+ * policy here only when the chain picked Landlock, and the adaptor never has to drop a
+ * dimension it cannot honor.
  *
  * Everything DSH loads behind the dynamic imports below, and that is load-bearing for
  * hot push (see scripts/deploy.mjs): the package reaches native-adjacent modules that a
@@ -27,7 +32,9 @@ import { Bind, Component } from "@prismshadow/penguin-core/plugin";
 import type {
   ConfinedArgv,
   Plugin,
+  SandboxDimension,
   SandboxLimit,
+  SandboxPolicy,
   SandboxProvider,
   SandboxProviderSource,
 } from "@prismshadow/penguin-core/plugin";
@@ -161,21 +168,114 @@ export function rungName(platform: NodeJS.Platform, runner: string | undefined):
   return runner === "bwrap" ? "bubblewrap" : "Landlock";
 }
 
+/** The dimensions a rung of DSH's chain can be routed, as this file loads them. */
+export function declaredDimensions(rung: string): readonly SandboxDimension[] {
+  // Only the Landlock rung can hold a read-only state root: its allow-list needs no new
+  // rule for it, and the writable roots this file splices in speak the launcher's own flag
+  // vocabulary. Every other rung stays what it was — filesystem writes only.
+  return rung === "Landlock" ? ["fs-write", "readonly-roots"] : ["fs-write"];
+}
+
+/**
+ * The writable roots the Landlock rung must grant BEYOND its own profile, under Workspace
+ * Write — the one mode where that profile grants anything writable besides /dev/null: the
+ * policy's further roots (the Session's scratchpad), plus the host's actual temp directory
+ * whenever the policy keeps temp writable, because the chain's profile names only the
+ * literal `/tmp` and a deployment whose TMPDIR points elsewhere must not lose its temp.
+ * What the profile already grants (that literal `/tmp`, the workspace) drops out, so nothing
+ * is granted twice. Read-only keeps the chain's own profile untouched: nothing to splice.
+ */
+export function grantableWritableRoots(
+  policy: Pick<SandboxPolicy, "mode" | "workspaceRoot" | "writableRoots" | "writableTemp">,
+  tmp: string = tmpdir(),
+): string[] {
+  if (policy.mode !== "workspace-write") return [];
+  const alreadyGranted = new Set(["/tmp", path.resolve(policy.workspaceRoot)]);
+  return [...(policy.writableRoots ?? []), ...(policy.writableTemp !== false ? [tmp] : [])]
+    .map((root) => path.resolve(root))
+    .filter((root, at, all) => all.indexOf(root) === at && !alreadyGranted.has(root));
+}
+
+/**
+ * Whether Landlock can hold these read-only roots at all. It is an allow-list with no
+ * subtractive rule: on a path inside (or equal to) a writable grant, the closest ancestor's
+ * rights apply, so the grant wins and the root stays writable — the read-only promise would
+ * be a lie. Refusing here is the fail-closed answer. The carve-OUT direction needs no check:
+ * a writable root deeper INSIDE a read-only one is exactly how the scratchpad stays writable
+ * under a read-only state root, and a more specific grant is precisely how Landlock spells it.
+ */
+export function assertLandlockCanExpress(
+  readonlyRoots: readonly string[],
+  rwGrants: readonly string[],
+): void {
+  for (const rawRoot of readonlyRoots) {
+    const root = path.resolve(rawRoot);
+    for (const rawGrant of rwGrants) {
+      const grant = path.resolve(rawGrant);
+      const relative = path.relative(grant, root);
+      if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
+        throw new Error(
+          `dsh-local cannot hold ${root} read-only under Landlock: it sits inside the ` +
+            `writable grant ${grant}, and Landlock has no rule that subtracts; refusing ` +
+            "to run the command with that path writable.",
+        );
+      }
+    }
+  }
+}
+
+/** The launcher's grant-argument function, as `@deepseek-ai/node-addon-landlock-run` exports it. */
+export type GrantArgs = (grants: {
+  readOnly?: readonly string[];
+  readWrite?: readonly string[];
+}) => string[];
+
+/**
+ * The extra writable grants spliced into a Landlock wrapper. The caller's command must sit
+ * behind the same `--` separator it started behind, so the known tail — the separator and
+ * the caller's argv — is stripped, the grants go in front of the separator, and the tail is
+ * re-attached. A wrapper that does not end with exactly that tail is refused rather than
+ * spliced by guesswork: the launcher's flag spellings are private to its package, and a
+ * splice into an unknown shape could grant to the wrong path or drop the command's own
+ * arguments.
+ */
+export function spliceLandlockGrants(
+  wrapped: readonly string[],
+  callerArgv: readonly string[],
+  extra: readonly string[],
+  grantArgs: GrantArgs,
+): string[] {
+  const at = wrapped.length - callerArgv.length - 1;
+  const endsWithTail =
+    at >= 0 && wrapped[at] === "--" && callerArgv.every((arg, i) => wrapped[at + 1 + i] === arg);
+  if (!endsWithTail) {
+    throw new Error(
+      'dsh-local: the Landlock wrapper no longer ends with "--" and the caller\'s command; ' +
+        "refusing to splice further grants into an unknown argv shape.",
+    );
+  }
+  if (extra.length === 0) return [...wrapped];
+  return [...wrapped.slice(0, at), ...grantArgs({ readWrite: [...extra] }), ...wrapped.slice(at)];
+}
+
 /**
  * What the rung leaves open, for the settings card. DSH's policy takes the mode and the
- * Workspace and nothing more, so no rung grants the Session's scratchpad (SandboxPolicy
- * .writableRoots). Landlock grants the host's own /tmp; on a kernel older than Landlock ABI 5
- * the launcher governs only part of the file accesses, and says so on every run (dropped from
- * the command's stderr, see the core's ConfinedSpawn.runnerLines).
+ * Workspace and nothing more, so the rungs that keep DSH's own profile grant the Session's
+ * scratchpad (SandboxPolicy.writableRoots) nothing; under Landlock this file splices those
+ * roots into the launcher's grants, so there the scratchpad is writable and the limitation
+ * that remains is the shared /tmp. On a kernel older than Landlock ABI 5 the launcher
+ * governs only part of the file accesses, and says so on every run (dropped from the
+ * command's stderr, see the core's ConfinedSpawn.runnerLines).
  */
 export function rungLimits(rung: string, enforcement: "full" | "partial"): SandboxLimit[] {
-  const limits: SandboxLimit[] = [
-    {
+  const limits: SandboxLimit[] = [];
+  if (rung !== "Landlock") {
+    limits.push({
       text: `${rung}: under Workspace Write the Session scratchpad is not writable — DSH's policy takes the Workspace alone — so commands cannot write the plan, goal or attachment files kept there.`,
       textZh: `${rung}：仅工作区可写下 Session scratchpad 不可写（DSH 的策略只接受工作区），命令无法写入其中的计划、目标与附件文件。`,
-    },
-  ];
-  if (rung !== "Landlock") return limits;
+    });
+    return limits;
+  }
   limits.push({
     text: "Landlock: under Workspace Write the temporary directory is the host's shared /tmp, writable by every confined command; it cannot be closed or made private here.",
     textZh:
@@ -217,25 +317,63 @@ export async function loadDshAdaptor(host: DshLoadHost = {}): Promise<SandboxPro
   // macOS and Windows have a single rung, which DSH selects unprobed: this proves nothing there.
   const probe = dsh.confine([process.execPath], { mode: "read-only", workspaceRoot: tmpdir() });
   const rung = rungName(platform, probe.argv[0]);
+  // The Landlock rung is the one this file extends, and the extension speaks the launcher's
+  // own flag vocabulary — behind the same dynamic-import rule as everything else DSH (hot
+  // push, see the file header), from a package this one depends on directly.
+  const grantArgs: GrantArgs | null =
+    rung === "Landlock" ? (await import("@deepseek-ai/node-addon-landlock-run")).grantArgs : null;
   return {
     // DSH's own words: "Network and process visibility are outside this vocabulary." Nor can it
     // close the temporary directory (`closed-temp`): every rung grants one under workspace-write.
-    dimensions: ["fs-write"],
+    // `readonly-roots` rides only on the Landlock rung — the dimensions the service routes by.
+    dimensions: declaredDimensions(rung),
     mechanism: rung + (probe.enforcement === "partial" ? " (partial)" : ""),
     limits: rungLimits(rung, probe.enforcement),
     confine(argv, policy): ConfinedArgv {
       if (policy.mode === "danger-full-access") {
-        // Unreachable: this backend implements only fs-write, so the service never hands it a
-        // full-access policy (which only ever arrives with a network/mask dimension it lacks).
+        // DSH has no vocabulary for "the whole filesystem writable but these roots": the
+        // service prefers a backend that declares more dimensions, so a full-access policy
+        // that also holds the state read-only reaches the bwrap backend first; when only
+        // this one is mounted it lands here, and refusing beats running with a root the
+        // policy promised read-only.
         throw new Error("dsh-local does not implement full filesystem access with confinement");
       }
       assertAclRunnerCanStart(argv, platform, shell);
+      const readonlyRoots = [
+        ...new Set((policy.readonlyRoots ?? []).map((root) => path.resolve(root))),
+      ];
+      // What the Landlock rung must grant beyond its own profile; unused everywhere else.
+      const extra = grantableWritableRoots(policy);
+      if (readonlyRoots.length > 0) {
+        if (grantArgs === null) {
+          // Defensive: the service routes by the dimensions this provider declared at load,
+          // so a read-only state root reaching another rung means a stale mounted provider or
+          // an embedder wiring around the service. Drop the roots is the one forbidden
+          // direction — refuse instead.
+          throw new Error(
+            `dsh-local cannot hold the agent state read-only under ${rung}: only the Landlock ` +
+              "rung has a vocabulary for it; refusing to run the command with the state writable.",
+          );
+        }
+        // The writable grants that will be in force: the chain's own profile (always
+        // /dev/null; /tmp and the workspace under Workspace Write) plus what this file
+        // splices in. A read-only root inside one of those stays writable — unexpressable.
+        assertLandlockCanExpress(
+          readonlyRoots,
+          policy.mode === "workspace-write"
+            ? ["/dev/null", "/tmp", path.resolve(policy.workspaceRoot), ...extra]
+            : ["/dev/null", ...extra],
+        );
+      }
       const confined = dsh.confine(argv, {
         mode: policy.mode,
         workspaceRoot: policy.workspaceRoot,
       });
       return {
-        argv: confined.argv,
+        argv:
+          grantArgs === null || extra.length === 0
+            ? confined.argv
+            : spliceLandlockGrants(confined.argv, argv, extra, grantArgs),
         enforcement: confined.enforcement,
         denialSignatures: confined.denialSignatures,
         runnerFailureRules: confined.runnerFailureRules,

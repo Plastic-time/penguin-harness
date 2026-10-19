@@ -26,6 +26,31 @@ const HOST = {
     p.endsWith("secret") ? ("dir" as const) : p.endsWith(".env") ? ("file" as const) : null,
 };
 const WS = "C:\\Users\\k\\ws";
+/** The distro spellings the order rows assert: the Workspace, a state root and its scratchpad. */
+const WS_L = "/mnt/c/Users/k/ws";
+const ST = "C:\\Users\\k\\.penguin\\data\\p\\agents\\a";
+const ST_L = "/mnt/c/Users/k/.penguin/data/p/agents/a";
+const PAD = `${ST}\\scratchpad\\session-1`;
+const PAD_L = `${ST_L}/scratchpad/session-1`;
+
+/** A workspace-write policy over the test Workspace, with the further fields a row names. */
+const ws = (
+  readonlyRoots?: readonly string[],
+  writableRoots?: readonly string[],
+  writableTemp?: boolean,
+) => ({
+  mode: "workspace-write" as const,
+  workspaceRoot: WS,
+  ...(readonlyRoots ? { readonlyRoots } : {}),
+  ...(writableRoots ? { writableRoots } : {}),
+  ...(writableTemp !== undefined ? { writableTemp } : {}),
+});
+
+/** An order row's mounts — flag before path — in the order the profile must show them. */
+const chain = (...pairs: [string, string][]) => pairs;
+
+/** Where some rows' mounts sit: after the covering /mnt tmpfs, before it is sealed read-only. */
+const UNDER_MNT = ["/mnt", "--remount-ro"] as const;
 
 describe("toLinuxPath", () => {
   it("maps a drive path under /mnt, lowercasing the drive", () => {
@@ -115,6 +140,73 @@ describe("bwrapArgs", () => {
     expect(args.join(" ")).toContain("--bind / /");
     expect(args).not.toContain("/mnt");
     expect(args).not.toContain("--share-net");
+  });
+
+  /** Refusal rows: a path with no spelling inside the distro is refused, never dropped. */
+  it.each([
+    {
+      name: "a read-only root from another distro's UNC path, rather than dropping it",
+      policy: ws(["\\\\wsl.localhost\\Ubuntu\\home\\x"]),
+      message: /penguin-wsl: the read-only root .*no path inside the WSL distro/,
+    },
+    {
+      name: "a read-only root from a network share, rather than dropping it",
+      policy: ws(["\\\\server\\share\\state"]),
+      message: /penguin-wsl: .*no path inside the WSL distro/,
+    },
+  ])("refuses %s", ({ policy, message }) => {
+    expect(() => bwrapArgs(policy, HOST)).toThrow(message);
+  });
+
+  /**
+   * Order rows: mounts in the order the profile must show them — deeper later, read-only
+   * after writable — and between the `bounds` markers where a covering tmpfs seals /mnt.
+   */
+  it.each([
+    {
+      name: "sorts the Workspace, writable and read-only mounts by depth: deeper later, read-only after writable",
+      policy: ws([ST], [PAD]),
+      order: chain(["--bind", WS_L], ["--ro-bind", ST_L], ["--bind", PAD_L]),
+      bounds: UNDER_MNT,
+    },
+    {
+      name: "at equal depth a read-only mount goes after the writable one, so it wins the tie",
+      policy: ws(["C:\\Users\\k\\st"]),
+      order: chain(["--bind", WS_L], ["--ro-bind", "/mnt/c/Users/k/st"]),
+      bounds: undefined,
+    },
+    {
+      name: "a state root the layout placed inside the Workspace still mounts read-only over it",
+      policy: ws(["C:\\Users\\k\\ws\\.penguin\\agents\\a"]),
+      order: chain(["--bind", WS_L], ["--ro-bind", `${WS_L}/.penguin/agents/a`]),
+      bounds: UNDER_MNT,
+    },
+    {
+      name: "a read-only root inside the temp area mounts after the tmpfs covering it",
+      policy: ws(["/tmp/state-root"], [], true),
+      order: chain(["--tmpfs", "/tmp"], ["--ro-bind", "/tmp/state-root"]),
+      bounds: undefined,
+    },
+    {
+      name: "full access still mounts the read-only roots, shadowing the writable bind of /",
+      policy: { mode: "danger-full-access" as const, workspaceRoot: WS, readonlyRoots: [ST] },
+      order: chain(["--bind", "/"], ["--ro-bind", ST_L]),
+      bounds: undefined,
+    },
+  ])("%s", ({ policy, order, bounds }) => {
+    const args = bwrapArgs(policy, HOST);
+    let prev = -1;
+    for (const [flag, mount] of order) {
+      const at = args.indexOf(mount);
+      expect(at, `${flag} ${mount}`).toBeGreaterThan(prev);
+      expect(args[at - 1]).toBe(flag);
+      prev = at;
+    }
+    if (bounds !== undefined)
+      for (const [, mount] of order) {
+        expect(args.indexOf(mount)).toBeGreaterThan(args.indexOf(bounds[0]));
+        expect(args.indexOf(mount)).toBeLessThan(args.indexOf(bounds[1]));
+      }
   });
 
   it("masks come last: a tmpfs over a directory, /dev/null over a file, nothing for a missing path", () => {

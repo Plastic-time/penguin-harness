@@ -49,18 +49,19 @@ export const SANDBOX_GROUP = "sandbox";
             descriptionZh:
               "新会话是否进入沙盒。打开：从默认预设开始。关闭：拥有完全的文件与网络访问，只受询问模式约束。已有会话保留各自的策略。",
           },
-          // The composer's menu: each preset a named mode, network level and approval mode, and
-          // the default (marked after its name): the row a new Session starts from while on.
-          // Full Access keeps its promise (nothing confined, everything approved): only its
-          // name, whether the menu lists it and whether it is the default can change.
+          // The composer's menu: each preset a named mode, network level, approval mode and
+          // state-read-only stance, and the default (marked after its name): the row a new
+          // Session starts from while on. Full Access keeps its promise (nothing confined,
+          // everything approved): only its name, whether the menu lists it and whether it is
+          // the default can change.
           presets: {
             type: "table",
             title: "Presets",
             titleZh: "预设",
             description:
-              "Named combinations of file access, network and ask mode. The pinned ones are what the composer's permission menu offers, and the one marked (Default) is what a new session starts from while the sandbox is on; changing it reaches new sessions only. A session keeps its own three values, and the menu names it by the first row that matches. Each name's \"?\" says what the row is for.",
+              "Named combinations of file access, network and ask mode, with or without the agent's own state held read-only. The pinned ones are what the composer's permission menu offers, and the one marked (Default) is what a new session starts from while the sandbox is on; changing it reaches new sessions only. A session keeps its own values, and the menu names it by the first row that matches. Each name's \"?\" says what the row is for.",
             descriptionZh:
-              "文件访问、网络与询问模式的命名组合。固定的行出现在输入框的权限菜单里；沙盒打开时，新会话从标有（默认）的行开始，改动只影响此后新建的会话。会话只保存自己的三项取值，菜单按第一个匹配的行为它命名。每个名称旁的「?」说明这一行的用途。",
+              "文件访问、网络、询问模式与状态只读与否的命名组合。固定的行出现在输入框的权限菜单里；沙盒打开时，新会话从标有（默认）的行开始，改动只影响此后新建的会话。会话保存自己的取值，菜单按第一个匹配的行为它命名。每个名称旁的「?」说明这一行的用途。",
             rowChoice: { field: "defaultPreset", title: "Default", titleZh: "默认" },
             columnGroup: {
               title: "Action",
@@ -82,6 +83,7 @@ export const SANDBOX_GROUP = "sandbox";
                 mode: "workspace-write",
                 network: "open",
                 approvalMode: "always-ask",
+                stateReadonly: false,
               },
               valuesZh: { name: "新预设" },
             },
@@ -212,6 +214,16 @@ export const SANDBOX_GROUP = "sandbox";
                 ],
               },
               {
+                name: "stateReadonly",
+                type: "boolean",
+                title: "State read-only",
+                titleZh: "状态只读",
+                description:
+                  "Whether this row also holds the agent's own state (its memory, instructions, skills and scheduled tasks) read-only to the session's commands and hooks. On: the state stays readable, the session's scratchpad and the workspace stay writable. Needs a sandbox backend that can enforce it — the row is greyed out where the backends in use cannot.",
+                descriptionZh:
+                  "这一行是否还把 Agent 自身的 state（记忆、指示文件、技能与定时任务）对会话的命令与钩子保持只读。打开：state 仍可读，会话的 scratchpad 与工作区照常可写。需要能实施它的沙盒后端——在用的后端做不到时显示为灰色。",
+              },
+              {
                 name: "enabled",
                 type: "boolean",
                 title: "Pin",
@@ -221,6 +233,9 @@ export const SANDBOX_GROUP = "sandbox";
                 descriptionZh: "权限菜单是否列出这一行。未固定的行仍可作为默认。",
               },
             ],
+            // Every row declares every column, false included: parseTable rejects a row that
+            // leaves a declared column unset, and only a uniform table keeps the generated
+            // ifaces.json's literal type castable to the Manifest it is checked against.
             rows: [
               {
                 id: "full-access",
@@ -230,6 +245,7 @@ export const SANDBOX_GROUP = "sandbox";
                   mode: "danger-full-access",
                   network: "open",
                   approvalMode: "allow-all",
+                  stateReadonly: false,
                 },
                 valuesZh: { name: "完全访问" },
                 description:
@@ -246,6 +262,7 @@ export const SANDBOX_GROUP = "sandbox";
                   mode: "danger-full-access",
                   network: "open",
                   approvalMode: "always-ask",
+                  stateReadonly: false,
                 },
                 valuesZh: { name: "每次询问" },
                 description:
@@ -260,12 +277,29 @@ export const SANDBOX_GROUP = "sandbox";
                   mode: "workspace-write",
                   network: "open",
                   approvalMode: "allow-all",
+                  stateReadonly: false,
                 },
                 valuesZh: { name: "仅工作区可写" },
                 description:
                   "Commands and file tools change files only inside the workspace; the network is open and calls run without asking. For everyday coding.",
                 descriptionZh:
                   "命令与文件工具只能改工作区内的文件；网络不受限，调用无需询问。适合日常编码。",
+              },
+              {
+                id: "workspace-write-state-readonly",
+                values: {
+                  name: "Workspace Write, State Read-Only",
+                  enabled: true,
+                  mode: "workspace-write",
+                  network: "open",
+                  approvalMode: "allow-all",
+                  stateReadonly: true,
+                },
+                valuesZh: { name: "工作区可写·状态只读" },
+                description:
+                  "Like Workspace Write, and on top of it the agent's own state — its memory, instructions, skills and scheduled tasks — is held read-only to the session's commands and hooks, wherever the deployment puts it. The state stays readable; the session's scratchpad and the workspace stay writable. Needs a backend that can enforce the read-only state.",
+                descriptionZh:
+                  "与「仅工作区可写」相同，并额外把 Agent 自身的 state——记忆、指示文件、技能与定时任务——对会话的命令与钩子保持只读，无论部署把目录放在哪里。state 仍可读；会话的 scratchpad 与工作区照常可写。需要能实施只读状态的后端。",
               },
               {
                 id: "read-only",
@@ -275,6 +309,7 @@ export const SANDBOX_GROUP = "sandbox";
                   mode: "read-only",
                   network: "open",
                   approvalMode: "allow-all",
+                  stateReadonly: false,
                 },
                 valuesZh: { name: "只读" },
                 description:
@@ -290,6 +325,7 @@ export const SANDBOX_GROUP = "sandbox";
                   mode: "workspace-write",
                   network: "open",
                   approvalMode: "always-ask",
+                  stateReadonly: false,
                 },
                 valuesZh: { name: "仅工作区可写并询问" },
                 description:
@@ -304,6 +340,7 @@ export const SANDBOX_GROUP = "sandbox";
                   mode: "danger-full-access",
                   network: "open",
                   approvalMode: "deny-all",
+                  stateReadonly: false,
                 },
                 valuesZh: { name: "全部拒绝" },
                 description:
@@ -324,6 +361,11 @@ export const SANDBOX_GROUP = "sandbox";
               { value: "full-access", title: "Full Access", titleZh: "完全访问" },
               { value: "always-ask", title: "Always Ask", titleZh: "每次询问" },
               { value: "workspace-write", title: "Workspace Write", titleZh: "仅工作区可写" },
+              {
+                value: "workspace-write-state-readonly",
+                title: "Workspace Write, State Read-Only",
+                titleZh: "工作区可写·状态只读",
+              },
               { value: "read-only", title: "Read Only", titleZh: "只读" },
               {
                 value: "workspace-write-ask",

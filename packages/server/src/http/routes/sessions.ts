@@ -60,6 +60,7 @@ import { HttpError } from "../errors.js";
 import { sseEndpoint, streamRevocation } from "../sse.js";
 import {
   badRequest,
+  optionalBoolean,
   optionalEnum,
   optionalSessionListPagingQuery,
   optionalString,
@@ -209,10 +210,14 @@ function parseSandboxPick(body: unknown): Partial<SessionSandbox> | undefined {
     "local",
     "none",
   ] as const);
+  // The fourth preset value, in both spellings: `true` selects it, `false` is how a preset
+  // without it clears a policy that held it (absent, as ever, keeps what the Session has).
+  const stateReadonly = optionalBoolean(raw as Record<string, unknown>, "stateReadonly");
   if (mode !== undefined) pick.mode = mode;
   if (network !== undefined) pick.network = network;
-  if (mode === undefined && network === undefined) {
-    throw badRequest("sandbox must set mode and/or network.");
+  if (stateReadonly !== undefined) pick.stateReadonly = stateReadonly;
+  if (mode === undefined && network === undefined && stateReadonly === undefined) {
+    throw badRequest("sandbox must set mode, network and/or stateReadonly.");
   }
   return pick;
 }

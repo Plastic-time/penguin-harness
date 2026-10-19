@@ -294,6 +294,15 @@ export interface EnvironmentConfig {
    * embedders without a stable Session directory omit it and keep truncation-only behavior.
    */
   sessionScratchpadDir?: string;
+  /**
+   * This Agent's per-agent root — the directory all of the Agent's own state lives under
+   * (`<root>/<projectId>/agents/<agentId>`, named by the core path code that owns the layout,
+   * never derived by truncating the scratchpad path). The spawn seam hands it to the confiner
+   * beside the scratchpad (see {@link SpawnConfiner}), which a `stateReadonly` policy turns
+   * into the read-only root of the confinement. Absent for standalone embedders, whose
+   * confiner is their own and holds no such promise.
+   */
+  agentStateRoot?: string;
   /** Runtime services (optional); Environment forwards these to each tool factory to use as needed. */
   services?: EnvironmentServices;
   /**
@@ -379,13 +388,15 @@ export type ProxyEnvPolicy = { mode: "strip" } | { mode: "inject"; url: string; 
  *   directory a workspace-scoped confinement policy should treat as writable, never
  *   inferred from `cwd` (a command may run in a workdir outside the Workspace);
  *   `scratchpadDir` is the Session's scratchpad, writable beside the workspace under
- *   that policy (absent for a Session without one).
+ *   that policy (absent for a Session without one); `stateRoot` is the Agent's per-agent
+ *   root, which the confiner holds read-only when its policy says `stateReadonly` —
+ *   absent for a Session whose host carries no per-agent root (a standalone embedder).
  * @returns what to spawn instead: the argv, and any environment entries the runner
  *   itself needs (see {@link ConfinedSpawn}).
  */
 export type SpawnConfiner = (
   argv: readonly string[],
-  opts: { cwd: string; workspaceDir: string; scratchpadDir?: string },
+  opts: { cwd: string; workspaceDir: string; scratchpadDir?: string; stateRoot?: string },
 ) => ConfinedSpawn;
 
 /**

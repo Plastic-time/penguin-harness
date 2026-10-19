@@ -255,6 +255,97 @@ describe("sandbox service — the built-in interface and its optional dimensions
   });
 });
 
+describe("sandbox service — the read-only state root", () => {
+  /** A per-agent state root that exists, as the core hands it at the spawn seam. */
+  function agentRoot(): string {
+    const root = path.join(tmp(), "agents", "penguin-a");
+    fs.mkdirSync(root, { recursive: true });
+    return root;
+  }
+
+  it("a stateReadonly policy hands the backend the state root beside the scratchpad", async () => {
+    const stateRoot = agentRoot();
+    const scratchpad = path.join(stateRoot, "scratchpad", "session-1");
+    const bwrap = fake("bwrap", [
+      "fs-write",
+      "network",
+      "mask-paths",
+      "closed-temp",
+      "readonly-roots",
+    ]);
+    const svc = await service([["penguin-bwrap", bwrap.provider]]);
+    const confine = svc.confinerFor(() => ({ mode: "workspace-write", stateReadonly: true }));
+    confine([...ARGV], { ...OPTS, scratchpadDir: scratchpad, stateRoot });
+    // The state root is the whole per-agent root, read-only; the scratchpad — its deeper
+    // child — stays writable, and both are the backend's to express.
+    expect(bwrap.calls[0]).toMatchObject({
+      mode: "workspace-write",
+      workspaceRoot: "/work/project",
+      readonlyRoots: [stateRoot],
+      writableRoots: [scratchpad],
+    });
+  });
+
+  it("a readonly-roots policy routes past a backend that does not declare it", async () => {
+    const dsh = fake("dsh");
+    const bwrap = fake("bwrap", ["fs-write", "readonly-roots"]);
+    const stateRoot = agentRoot();
+    const svc = await service([
+      ["dsh-local", dsh.provider],
+      ["penguin-bwrap", bwrap.provider],
+    ]);
+    const confine = svc.confinerFor(() => ({ mode: "workspace-write", stateReadonly: true }));
+    expect(confine([...ARGV], { ...OPTS, stateRoot }).argv).toEqual(["bwrap", "--", ...ARGV]);
+    expect(dsh.calls).toHaveLength(0);
+    expect(bwrap.calls[0]).toMatchObject({ readonlyRoots: [stateRoot] });
+  });
+
+  it("requiring readonly-roots with no backend that declares it is refused, the backend unconsulted", async () => {
+    const dsh = fake("dsh");
+    const stateRoot = agentRoot();
+    const svc = await service([["dsh-local", dsh.provider]]);
+    const confine = svc.confinerFor(() => ({ mode: "workspace-write", stateReadonly: true }));
+    expect(() => confine([...ARGV], { ...OPTS, stateRoot })).toThrow(
+      /requires fs-write \+ readonly-roots, but no mounted sandbox backend implements all of it \(dsh-local: fs-write\)/,
+    );
+    // Dropping the root and confining without it would WIDEN the sandbox: never consulted.
+    expect(dsh.calls).toHaveLength(0);
+  });
+
+  it("full access with the state held read-only still reaches a backend — never dropped", async () => {
+    const bwrap = fake("bwrap", ["fs-write", "network", "readonly-roots"]);
+    const stateRoot = agentRoot();
+    const svc = await service([["penguin-bwrap", bwrap.provider]]);
+    const confine = svc.confinerFor(() => ({ mode: "danger-full-access", stateReadonly: true }));
+    expect(confine([...ARGV], { ...OPTS, stateRoot }).argv).toEqual(["bwrap", "--", ...ARGV]);
+    expect(bwrap.calls[0]).toMatchObject({
+      mode: "danger-full-access",
+      readonlyRoots: [stateRoot],
+    });
+  });
+
+  it("a state root missing on disk refuses the spawn, and the confiner does not create it", async () => {
+    const bwrap = fake("bwrap", ["fs-write", "readonly-roots"]);
+    const svc = await service([["penguin-bwrap", bwrap.provider]]);
+    const absent = path.join(tmp(), "never-made");
+    const confine = svc.confinerFor(() => ({ mode: "workspace-write", stateReadonly: true }));
+    expect(() => confine([...ARGV], { ...OPTS, stateRoot: absent })).toThrow(
+      /cannot hold the agent state .*does not exist as a directory/,
+    );
+    // Creating it would fake the protection the field promises.
+    expect(fs.existsSync(absent)).toBe(false);
+    expect(bwrap.calls).toHaveLength(0);
+  });
+
+  it("a stateReadonly spawn without a state root (an older core) is refused, not run with the state writable", async () => {
+    const bwrap = fake("bwrap", ["fs-write", "readonly-roots"]);
+    const svc = await service([["penguin-bwrap", bwrap.provider]]);
+    const confine = svc.confinerFor(() => ({ mode: "workspace-write", stateReadonly: true }));
+    expect(() => confine([...ARGV], OPTS)).toThrow(/carries no per-agent state root/);
+    expect(bwrap.calls).toHaveLength(0);
+  });
+});
+
 describe("sandbox service — capability routing across backends", () => {
   const entries = () => {
     const dsh = fake("dsh");

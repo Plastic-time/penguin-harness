@@ -230,8 +230,12 @@ export interface ScriptHookOptions {
    * `scope` below.
    */
   confineSpawn?: () => SpawnConfiner | null;
-  /** The Session's Workspace and scratchpad, the confiner's scope; absent = the package directory stands in for the Workspace. */
-  scope?: { workspaceDir: string; scratchpadDir?: string };
+  /**
+   * The Session's Workspace, scratchpad and per-agent state root, the confiner's scope;
+   * absent = the package directory stands in for the Workspace. `stateRoot` is what a
+   * `stateReadonly` policy holds read-only to hook scripts.
+   */
+  scope?: { workspaceDir: string; scratchpadDir?: string; stateRoot?: string };
 }
 
 /**
@@ -264,6 +268,7 @@ function scriptRunner(
                 ...(opts.scope?.scratchpadDir !== undefined
                   ? { scratchpadDir: opts.scope.scratchpadDir }
                   : {}),
+                ...(opts.scope?.stateRoot !== undefined ? { stateRoot: opts.scope.stateRoot } : {}),
               }),
           }
         : {}),

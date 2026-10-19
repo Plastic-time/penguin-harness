@@ -1725,14 +1725,24 @@ export type SessionSandboxMode = "read-only" | "workspace-write" | "danger-full-
 
 /**
  * The part of a Session's sandbox policy a person picks from the composer: the filesystem
- * mode and the network level. The Session keeps its own copy — taken from the server's
- * Sandbox settings when it was created — so editing those settings only changes what NEW
- * Sessions start with.
+ * mode, the network level, and whether the Agent's own state is held read-only. The Session
+ * keeps its own copy — taken from the server's Sandbox settings when it was created — so
+ * editing those settings only changes what NEW Sessions start with.
  */
 export interface SessionSandbox {
   mode: SessionSandboxMode;
   /** `open` = unrestricted, `local` = only the host's localhost, `none` = no network. */
   network: SessionSandboxNetwork;
+  /**
+   * True when this Session's commands and hooks cannot write the Agent's own state — its
+   * memory, instructions, skills and scheduled tasks stay read-only (readable, never
+   * writable), while the session's scratchpad and the Workspace stay writable. Absent = the
+   * presets' default, no such promise. Picked with the presets like the other values: a
+   * preset carrying it selects it, one without it sends `false` to clear it, and a request
+   * naming none keeps what the Session has. Enforced only by a backend declaring the
+   * `readonly-roots` dimension; where none does, every command under it is refused.
+   */
+  stateReadonly?: boolean;
   /**
    * Response only, ignored in requests: whether a sandbox backend on this server can enforce
    * the `read-only` and `workspace-write` modes. False on a deployment with no backend
@@ -1794,7 +1804,7 @@ export interface SessionSandbox {
   switchOn?: boolean;
 }
 
-/** One sandbox preset: a named mode, network level and approval mode. */
+/** One sandbox preset: a named mode, network level, state-readonly flag and approval mode. */
 export interface SessionSandboxPreset {
   id: string;
   /** The name an administrator gave it, or its declared English name. */
@@ -1806,6 +1816,12 @@ export interface SessionSandboxPreset {
   mode: SessionSandboxMode;
   network: SessionSandboxNetwork;
   approvalMode: ApprovalMode;
+  /**
+   * True when the row holds the Agent's own state read-only to the session's commands and
+   * hooks on top of its other values (see {@link SessionSandbox.stateReadonly}); absent =
+   * the row makes no such promise.
+   */
+  stateReadonly?: boolean;
   /**
    * Response-only: its file mode or network is wider than the server's sandbox settings (the
    * ceiling for non-admins), so a non-admin's pick of it is refused with `403 sandbox_forbidden`.

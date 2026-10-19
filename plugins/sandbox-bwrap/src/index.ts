@@ -13,8 +13,10 @@
  * later mount shadows an earlier one:
  *
  *   --ro-bind / /  --dev /dev  --proc /proc  --die-with-parent   the read-only world
- *   [writable temp]    --tmpfs /tmp  --bind <tmpdir> <same>         a private, writable /tmp
- *   [workspace-write]  --bind <workspaceRoot> <same>  --bind <writableRoot> <same>…
+ *   [path mounts]  sorted: deeper paths mount later, and at equal depth a read-only
+ *                  mount mounts after a writable one — so the deepest rule wins on
+ *                  every path two of them cover (the temp tmpfs, the workspace, the
+ *                  scratchpad and the read-only roots all in one order)
  *   [network: none]    --unshare-net                             no network namespace
  *   [mask-paths]       --tmpfs <dir> | --ro-bind /dev/null <file>  shadowing the above
  *   --  <the caller's argv>
@@ -23,6 +25,11 @@
  * that would otherwise expose them. A path that does not exist is skipped — there is
  * nothing to hide, and materializing an empty directory there would change the
  * filesystem view rather than restrict it.
+ *
+ * The one-order sort is what makes a read-only root hold wherever the deployment's layout
+ * put it: a state root inside the workspace or the temp area mounts later and shadows the
+ * writable bind that covers it, while the scratchpad — a deeper child of the state root —
+ * mounts later still and stays writable.
  *
  * Known limitation, verified live: `--unshare-net` gives the process an empty network
  * namespace (its /proc/net/dev holds only `lo`, and nothing resolves or connects), but
@@ -138,19 +145,67 @@ export function writableRoots(policy: SandboxPolicy): string[] {
   return [...new Set(roots)];
 }
 
+/**
+ * The read-only roots a policy names, canonical and deduplicated. Not skipped when they
+ * fall inside a writable root: the profile's mount order shadows the writable bind there,
+ * which is the whole point of the field (a state root the layout put inside the workspace).
+ */
+export function readonlyRoots(policy: SandboxPolicy): string[] {
+  const roots = (policy.readonlyRoots ?? []).map((root) => path.resolve(root));
+  return [...new Set(roots)];
+}
+
+/** One mount the profile applies in order: where it lands, the arguments that apply it, and whether it is read-only. */
+export interface ProfileMount {
+  /** The destination path the mount lands on (binds: source === destination). */
+  path: string;
+  /** The arguments that apply the mount, in order. */
+  args: string[];
+  /** Read-only mounts sort after writable ones at the same depth, so a read-only root wins a tie. */
+  readonly: boolean;
+}
+
+/** How deep a resolved absolute path is: the segments under `/` — 0 for `/`, 1 for `/tmp`. */
+export function pathDepth(resolved: string): number {
+  return resolved === "/" ? 0 : resolved.split("/").length - 1;
+}
+
+/**
+ * Every path mount of the profile in the one order bwrap needs: deeper paths mount later
+ * (a later mount shadows an earlier one on every path beneath it), and at equal depth a
+ * read-only mount mounts after a writable one — the deepest rule wins wherever two cover
+ * the same path, whichever list they came from.
+ */
+export function sortedMounts(policy: SandboxPolicy): ProfileMount[] {
+  const mounts: ProfileMount[] = [];
+  // The private, writable /tmp of a temp-granting policy, before the roots: a root deeper
+  // inside it mounts later and shadows it.
+  if (policy.writableTemp === true) {
+    mounts.push({ path: "/tmp", args: ["--tmpfs", "/tmp"], readonly: false });
+  }
+  for (const root of writableRoots(policy)) {
+    // A writable root equal to /tmp is covered by the private tmpfs above; binding the
+    // host's real /tmp instead would un-privatize it.
+    if (root === "/tmp" && policy.writableTemp === true) continue;
+    mounts.push({ path: root, args: ["--bind", root, root], readonly: false });
+  }
+  for (const root of readonlyRoots(policy)) {
+    mounts.push({ path: root, args: ["--ro-bind", root, root], readonly: true });
+  }
+  return mounts.sort(
+    (a, b) => pathDepth(a.path) - pathDepth(b.path) || Number(a.readonly) - Number(b.readonly),
+  );
+}
+
 /** The bwrap profile arguments for one policy (everything before `--` and the caller's argv). */
 export function bwrapProfileArgs(policy: SandboxPolicy): string[] {
   // Full access binds the root read-WRITE: the filesystem is unrestricted, and only the other
   // dimensions below (a network cut, a masked path) still apply — which is the whole reason a
-  // full-access policy reached a backend at all.
+  // full-access policy reached a backend at all. A read-only root still applies: it mounts
+  // deeper than `/` and shadows the writable bind on exactly the paths it names.
   const rootBind = policy.mode === "danger-full-access" ? "--bind" : "--ro-bind";
   const args = [rootBind, "/", "/", "--dev", "/dev", "--proc", "/proc", "--die-with-parent"];
-  const roots = writableRoots(policy);
-  if (policy.writableTemp === true) args.push("--tmpfs", "/tmp");
-  for (const root of roots) {
-    if (root === "/tmp") continue; // already a writable tmpfs above
-    args.push("--bind", root, root);
-  }
+  for (const mount of sortedMounts(policy)) args.push(...mount.args);
   if (policy.network === "local") {
     // An empty network namespace also loses the host's loopback, so "localhost only" has no
     // spelling here. The service never routes it here (no network-local dimension); refuse
@@ -257,7 +312,7 @@ export function createPenguinBwrapProvider(internals: PenguinBwrapInternals = {}
     }));
   const usable = new Map<string, boolean>();
   return {
-    dimensions: ["fs-write", "network", "mask-paths", "closed-temp"],
+    dimensions: ["fs-write", "network", "mask-paths", "closed-temp", "readonly-roots"],
     mechanism: "bubblewrap",
     confine(argv, policy): ConfinedArgv {
       const { runner, probeTimeoutMs } = settings();
@@ -304,7 +359,7 @@ export function createPenguinBwrapProvider(internals: PenguinBwrapInternals = {}
       {
         id: "sandbox-bwrap.provider",
         name: "penguin-bwrap",
-        dimensions: ["fs-write", "network", "mask-paths", "closed-temp"],
+        dimensions: ["fs-write", "network", "mask-paths", "closed-temp", "readonly-roots"],
       },
     ],
     "PluginConfigProvider.groups": [

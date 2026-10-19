@@ -11,6 +11,8 @@
  *   Session keeps — whatever level the Session is at when the menu opens.
  */
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { ApprovalMode, SessionSandbox } from "@prismshadow/penguin-server/api";
 import {
   BUILTIN_PRESETS,
@@ -132,7 +134,13 @@ describe("permission level", () => {
 
 describe("the composer's presets", () => {
   const byId = (id: string) => BUILTIN_PRESETS.find((p) => p.id === id)!;
-  const MENU = ["full-access", "always-ask", "workspace-write", "read-only"];
+  const MENU = [
+    "full-access",
+    "always-ask",
+    "workspace-write",
+    "workspace-write-state-readonly",
+    "read-only",
+  ];
 
   // A level set from the full settings is custom (null), never rounded to a row; disabled rows still name it.
   it.each([
@@ -142,8 +150,27 @@ describe("the composer's presets", () => {
     ["deny-all", {}, "denied-all"],
     ["allow-all", { network: "none" }, undefined],
     ["read-only", {}, undefined],
+    ["allow-all", { mode: "workspace-write" }, "workspace-write"],
+    [
+      "allow-all",
+      { mode: "workspace-write", stateReadonly: true },
+      "workspace-write-state-readonly",
+    ],
   ] as const)("names %s over %o as %s", (approval, over, id) => {
     expect(matchPreset(BUILTIN_PRESETS, approval, { ...FULL, ...over })?.id).toBe(id);
+  });
+
+  // An absent field would keep a held value: a preset without the flag must be able to clear it.
+  it.each([
+    ["workspace-write", false],
+    ["workspace-write-state-readonly", true],
+    ["read-only", false],
+  ] as const)("a preset's pick says all four values: %s", (id, stateReadonly) => {
+    expect(presetPick(byId(id)).sandbox).toEqual({
+      mode: byId(id).mode,
+      network: "open",
+      stateReadonly,
+    });
   });
 
   it("names a level held by two rows by table order", () => {
@@ -254,6 +281,11 @@ describe("the composer's presets", () => {
       ["files-in-workspace", "network-open"],
     ],
     [
+      byId("workspace-write-state-readonly"),
+      ["write-outside-workspace", "write-own-state"],
+      ["files-in-workspace", "network-open", "calls-unasked"],
+    ],
+    [
       { mode: "read-only", network: "local", approvalMode: "read-only" } as const,
       ["write-anywhere", "network-beyond-localhost", "unasked-writes"],
       ["read-files", "localhost", "reads-unasked"],
@@ -265,6 +297,22 @@ describe("the composer's presets", () => {
   it("says denied-all blocks every call and a closed network blocks the network", () => {
     expect(presetEffects(byId("denied-all")).blocks).toEqual(["every-call"]);
     expect(presetEffects({ ...byId("full-access"), network: "none" }).blocks).toEqual(["network"]);
+  });
+
+  it("stays in step with the server's own table: every built-in row is declared there too", () => {
+    // The server's rows live inside its settings declaration, not an exported value: this is
+    // the drift check for the hand-kept copy an older server falls back to.
+    const declared = readFileSync(
+      fileURLToPath(new URL("../../server/src/sandbox/settings-store.ts", import.meta.url)),
+      "utf8",
+    );
+    for (const preset of BUILTIN_PRESETS) {
+      expect(declared, `the server declares ${preset.id}`).toContain(`id: "${preset.id}"`);
+      expect(declared, `the server names ${preset.id}`).toContain(`name: "${preset.name}"`);
+      if (preset.nameZh !== undefined) {
+        expect(declared, `the server names ${preset.id} in Chinese`).toContain(preset.nameZh);
+      }
+    }
   });
 });
 

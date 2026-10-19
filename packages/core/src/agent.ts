@@ -32,6 +32,7 @@ import {
   loadAgentVault,
   loadProjectConfig,
   listInstalledHooks,
+  agentDir,
   projectDir,
   resolveSessionMemory,
   providerConnectionShape,
@@ -1310,6 +1311,10 @@ export class Agent {
         this.state.agentId,
         sessionId,
       ),
+      // The Agent's own per-agent root — the state a `stateReadonly` policy holds read-only
+      // to this Session's commands — named by the same path code that owns the scratchpad's
+      // layout, never derived by truncating it.
+      agentStateRoot: agentDir(this.state.root, this.state.projectId, this.state.agentId),
       services: { subagentRunner, ...(visionDescriber ? { visionDescriber } : {}) },
       ...(Object.keys(initial.vault).length > 0 ? { vault: initial.vault } : {}),
       ...(this.proxyEnv ? { proxyEnv: this.proxyEnv } : {}),
@@ -1553,6 +1558,7 @@ export class Agent {
       scope: {
         workspaceDir: spec.workspaceDir,
         scratchpadDir: sessionScratchpadDir(root, projectId, agentId, spec.sessionId),
+        stateRoot: agentDir(root, projectId, agentId),
       },
     };
     const withTimeout = (timeoutS: number | undefined): ScriptHookOptions => ({

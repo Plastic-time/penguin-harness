@@ -37,9 +37,14 @@ export type ConfinedSandboxMode = Exclude<SandboxMode, "danger-full-access">;
  * when a policy does not grant it ({@link SandboxPolicy.writableTemp}): a backend whose temp
  * area is always writable (the DSH adaptor, which grants the host's /tmp under
  * `workspace-write`) does not declare it, and a policy closing temp is never routed to it.
+ * `readonly-roots` is naming directories the confined process may read but not write beside
+ * the mode's writable set ({@link SandboxPolicy.readonlyRoots}): a backend that cannot hold a
+ * root read-only must not receive such a policy, because ignoring the field would WIDEN
+ * confinement — the opposite direction of an ignored writable root, and the one the interface
+ * forbids. That asymmetry is why this one is a dimension and `writableRoots` is not.
  */
 export type SandboxDimension =
-  "fs-write" | "network" | "network-local" | "mask-paths" | "closed-temp";
+  "fs-write" | "network" | "network-local" | "mask-paths" | "closed-temp" | "readonly-roots";
 
 /**
  * The network levels, narrowest first: `none` = no network at all, `local` = only the host's
@@ -78,6 +83,20 @@ export interface SandboxPolicy {
    * surfaces as such.
    */
   writableRoots?: readonly string[];
+  /**
+   * `readonly-roots`: absolute directories the confined process may READ but not write, named
+   * on top of the mode's own writable set — a state root that must survive even where the
+   * deployment's layout puts it inside a writable area. Each root EXISTS on the host by the
+   * time a backend is handed the policy (the same existence contract as the writable roots:
+   * the service refuses the spawn when one is missing rather than materializing it, because a
+   * directory created here would fake the very protection the field promises).
+   *
+   * Unlike {@link writableRoots} this one is guarded by its dimension: a backend that ignored
+   * it would widen confinement, so the service routes such a policy only to a provider that
+   * declares `readonly-roots`, and one that cannot express a root (it lies inside a writable
+   * area the backend has already granted) THROWS — never runs with the root writable.
+   */
+  readonlyRoots?: readonly string[];
   /**
    * `network`: "none" = the confined process gets no network at all (dimension `network`);
    * "local" = it reaches the host's localhost and nothing else (dimension `network-local`).
@@ -191,4 +210,10 @@ export type SandboxSettings = {
   maskPaths?: string[];
   /** Grant the system temp directory writable (SandboxPolicy.writableTemp). Absent = granted. */
   writableTemp?: boolean;
+  /**
+   * Hold this Agent's own state root read-only to the Session's commands and hooks
+   * (SandboxPolicy.readonlyRoots, dimension `readonly-roots`): the service names the
+   * per-agent root itself, so no path is configured. Absent = no such promise.
+   */
+  stateReadonly?: boolean;
 };

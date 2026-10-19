@@ -249,6 +249,8 @@ interface EnvironmentConfig {
   toolConfig: ToolConfig;                   // { customTools: ToolDefinitionConfig[]; mcpServers: MCPServerConfig[] }
   sessionScratchpadDir?: string;            // this Session's scratchpad (scratchpad/<sessionId>); enables truncated-output recovery,
                                             // and is writable beside the Workspace under a workspace-write sandbox
+  agentStateRoot?: string;                  // the agent's whole per-agent root (<dataRoot>/agents/<agentId>), held read-only by
+                                            // a stateReadonly policy; the scratchpad under it stays writable
   services?: EnvironmentServices;           // runtime services injected into individual tools
   vault?: Record<string, string>;           // Vault env vars, injected into exec_command / input_command subprocesses
   proxyEnv?: () => ProxyEnvPolicy | null;   // command-subprocess proxy policy; re-read per spawn, absent or null = pass through
@@ -268,11 +270,14 @@ type ProxyEnvPolicy = { mode: "strip" } | { mode: "inject"; url: string; noProxy
 // Rewrites the exact argv a command is about to spawn so it runs confined. Fail-closed: a
 // confiner that cannot enforce its policy throws, and the command fails to spawn. What
 // workspace-write may write is `workspaceDir` and `scratchpadDir` (the Session's scratchpad,
-// absent without one), never `cwd`. Handed to createAgent, the same confiner also confines
+// absent without one), never `cwd`. `stateRoot`, the agent's whole per-agent root, is the
+// opposite: a policy with `stateReadonly` holds it read-only (state stays readable, the
+// scratchpad inside it stays writable); a spawn without one refuses such a policy rather
+// than run the state writable. Handed to createAgent, the same confiner also confines
 // hook scripts: argv `[node, <script>]`, `cwd` the package directory.
 type SpawnConfiner = (
   argv: readonly string[],
-  opts: { cwd: string; workspaceDir: string; scratchpadDir?: string },
+  opts: { cwd: string; workspaceDir: string; scratchpadDir?: string; stateRoot?: string },
 ) => ConfinedSpawn;
 
 interface ConfinedSpawn {
@@ -281,13 +286,15 @@ interface ConfinedSpawn {
   runnerLines?: readonly string[];          // lines the runner prints before the command; dropped from the head of its stderr
 }
 
-// The policy itself (@prismshadow/penguin-core/plugin). "danger-full-access" with no network cut
-// and no masked path is the sandbox off.
+// The policy itself (@prismshadow/penguin-core/plugin). "danger-full-access" with no network cut,
+// no masked path and no read-only state root is the sandbox off.
 type SandboxSettings = {
   mode: "read-only" | "workspace-write" | "danger-full-access";
   network?: "none" | "local";               // absent = unrestricted; also bounds read_file's URL source
   maskPaths?: string[];                     // hidden from commands, hook scripts and the file tools, reads included
   writableTemp?: boolean;                   // absent = the temporary directory is writable
+  stateReadonly?: boolean;                  // holds the agent's whole per-agent root read-only (state readable, the
+                                             // scratchpad inside it writable); needs a backend declaring readonly-roots
 };
 
 interface EnvironmentServices {

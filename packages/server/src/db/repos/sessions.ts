@@ -93,6 +93,7 @@ function parseSandbox(raw: unknown): SandboxSettings | null {
         ? { maskPaths: value.maskPaths.filter((p): p is string => typeof p === "string") }
         : {}),
       ...(typeof value.writableTemp === "boolean" ? { writableTemp: value.writableTemp } : {}),
+      ...(typeof value.stateReadonly === "boolean" ? { stateReadonly: value.stateReadonly } : {}),
     };
   } catch {
     return null;

@@ -119,7 +119,7 @@ export function networkBlock(
 export const UNCONFINED: SessionSandbox = { mode: "danger-full-access", network: "open" };
 
 /**
- * One pick from the composer's menu: a preset's three values, saved together — or, with the
+ * One pick from the composer's menu: a preset's values, saved together — or, with the
  * Sandbox switch off, the approval mode alone (`sandbox` absent). An approval-mode pick never
  * carries the policy: echoing the current one back would pin it in a draft (a later switch-on
  * then sends an unconfined level a member may not have) and re-check it on a Session (one
@@ -127,12 +127,19 @@ export const UNCONFINED: SessionSandbox = { mode: "danger-full-access", network:
  */
 export interface PermissionPick {
   approvalMode: ApprovalMode;
-  sandbox?: Pick<SessionSandbox, "mode" | "network">;
+  sandbox?: Pick<SessionSandbox, "mode" | "network" | "stateReadonly">;
 }
 
-/** A preset's pick: its approval mode and its policy together. */
+/**
+ * A preset's pick: its approval mode and its policy together. `stateReadonly` goes as an
+ * explicit boolean either way — a preset without it must CLEAR a policy that holds it, and
+ * an absent field would keep it (the pick semantics of a policy a Session already has).
+ */
 export function presetPick(p: SessionSandboxPreset): PermissionPick {
-  return { approvalMode: p.approvalMode, sandbox: { mode: p.mode, network: p.network } };
+  return {
+    approvalMode: p.approvalMode,
+    sandbox: { mode: p.mode, network: p.network, stateReadonly: p.stateReadonly === true },
+  };
 }
 
 /** An approval-mode pick (switch off): the mode alone, the policy untouched. */
@@ -182,6 +189,16 @@ export const BUILTIN_PRESETS: readonly SessionSandboxPreset[] = [
     approvalMode: "allow-all",
   },
   {
+    id: "workspace-write-state-readonly",
+    name: "Workspace Write, State Read-Only",
+    nameZh: "工作区可写·状态只读",
+    enabled: true,
+    mode: "workspace-write",
+    network: "open",
+    approvalMode: "allow-all",
+    stateReadonly: true,
+  },
+  {
     id: "read-only",
     name: "Read Only",
     nameZh: "只读",
@@ -216,19 +233,22 @@ export function presetsOf(sandbox: SessionSandbox): readonly SessionSandboxPrese
 }
 
 /**
- * The preset a Session's level is: the first row, in table order, holding all three of its
+ * The preset a Session's level is: the first row, in table order, holding all four of its
  * values — a disabled row counts too. Null when none does (a level set from the full settings
  * or by an older client), which the composer shows as custom rather than rounding it to a row.
  */
 export function matchPreset(
   presets: readonly SessionSandboxPreset[],
   approval: ApprovalMode,
-  sandbox: Pick<SessionSandbox, "mode" | "network">,
+  sandbox: Pick<SessionSandbox, "mode" | "network" | "stateReadonly">,
 ): SessionSandboxPreset | null {
   return (
     presets.find(
       (p) =>
-        p.approvalMode === approval && p.mode === sandbox.mode && p.network === sandbox.network,
+        p.approvalMode === approval &&
+        p.mode === sandbox.mode &&
+        p.network === sandbox.network &&
+        (p.stateReadonly === true) === (sandbox.stateReadonly === true),
     ) ?? null
   );
 }
@@ -285,7 +305,7 @@ export function permissionMenu(
 
 /**
  * The level a menu row would leave the Session at, which the row wears before its name — the
- * mark the button takes once the row is picked: a preset's own three values, or (switch off) the
+ * mark the button takes once the row is picked: a preset's own values, or (switch off) the
  * approval mode over the policy the Session keeps.
  */
 export function menuRowLevel(
@@ -340,6 +360,7 @@ export function presetBlock(
 /** One thing a preset holds back or lets through, as the hover text names it. */
 export type PresetEffect =
   | "write-outside-workspace"
+  | "write-own-state"
   | "write-anywhere"
   | "network"
   | "network-beyond-localhost"
@@ -354,9 +375,9 @@ export type PresetEffect =
   | "calls-unasked"
   | "reads-unasked";
 
-/** What a preset blocks and what it allows, from its three values, for the hover text. */
+/** What a preset blocks and what it allows, from its four values, for the hover text. */
 export function presetEffects(
-  preset: Pick<SessionSandboxPreset, "mode" | "network" | "approvalMode">,
+  preset: Pick<SessionSandboxPreset, "mode" | "network" | "approvalMode" | "stateReadonly">,
 ): {
   blocks: PresetEffect[];
   allows: PresetEffect[];
@@ -370,6 +391,9 @@ export function presetEffects(
     blocks.push("write-anywhere");
     allows.push("read-files");
   } else allows.push("files-everywhere");
+  // The state-read-only promise rides any mode: the agent's own memory, instructions and
+  // scheduled tasks stay read-only to the session's commands, whatever else the row allows.
+  if (preset.stateReadonly === true) blocks.push("write-own-state");
   if (preset.network === "none") blocks.push("network");
   else if (preset.network === "local") {
     blocks.push("network-beyond-localhost");

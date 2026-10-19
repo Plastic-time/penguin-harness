@@ -13,10 +13,13 @@
  *   [writable temp]      --tmpfs /tmp
  *   [confining modes]    --tmpfs /mnt                 every Windows drive hidden …
  *   [exposeWindowsDrives]  --ro-bind /mnt/<d> …       … or shown read-only
- *   [workspace]          --bind | --ro-bind <ws>      the Workspace, at its own /mnt path
- *   [writable roots]     --bind <root> <root>…         the policy's further roots (the scratchpad)
+ *   [path mounts]        sorted: deeper paths mount later, and at equal depth a
+ *                        read-only mount mounts after a writable one — the Workspace,
+ *                        the writable roots and the read-only roots in one order
  *   --ro-bind-try /mnt/wsl/resolv.conf …              the file /etc/resolv.conf points at
  *   --remount-ro /mnt                                 the covering tmpfs itself is read-only
+ *   [full access]       --ro-bind <state root> …       the read-only roots still apply,
+ *                        shadowing the writable bind of `/` from deeper paths
  *   [mask-paths]         --tmpfs <dir> | --ro-bind /dev/null <file>
  *
  * Why /mnt is hidden rather than left read-only: under WSL the whole Windows profile arrives at
@@ -36,6 +39,12 @@
  * it. Covering /mnt and /run therefore took DNS away — every name failed to resolve while the
  * network itself was reachable. The two candidates are bound back read-only; `-try` because a
  * distro uses one of them, not both.
+ *
+ * Why one order for every path mount: a state root the deployment's layout put inside the
+ * Workspace (or inside the temp area) mounts later and shadows the writable bind that covers
+ * it, while the scratchpad — a deeper child of the state root — mounts later still and stays
+ * writable. A read-only root that has no spelling inside the distro is an error, not a skip:
+ * dropping it would widen the sandbox, which is exactly what the field exists to forbid.
  */
 import path from "node:path";
 import type { SandboxPolicy } from "@prismshadow/penguin-core/plugin";
@@ -99,6 +108,41 @@ export interface ProfileHost {
   kind: (windowsPath: string) => "dir" | "file" | null;
 }
 
+/** One mount the profile applies in order: where it lands, the arguments that apply it, and whether it is read-only. */
+interface DistroMount {
+  /** The destination path the mount lands on, spelled inside the distro (binds: source === destination). */
+  path: string;
+  /** The arguments that apply the mount, in order. */
+  args: string[];
+  /** Read-only mounts sort after writable ones at the same depth, so a read-only root wins a tie. */
+  readonly: boolean;
+}
+
+/** How deep a path is inside the distro: 0 for `/`, 1 for `/mnt`. */
+function depth(linuxPath: string): number {
+  return linuxPath === "/" ? 0 : linuxPath.split("/").length - 1;
+}
+
+/**
+ * The read-only roots a policy names, spelled inside the distro and deduplicated. One that has
+ * no spelling there is an error, not a skip: dropping a read-only root would widen the sandbox,
+ * which is exactly what the field exists to forbid — the writable roots above may fall back to
+ * "unreachable stays confined", a read-only root may not.
+ */
+function readonlyRootsInDistro(policy: SandboxPolicy, host: ProfileHost): string[] {
+  const roots = [...new Set(policy.readonlyRoots ?? [])].map((root) => {
+    const linux = toLinuxPath(root, host.distro);
+    if (linux === null) {
+      throw new Error(
+        `penguin-wsl: the read-only root ${root} has no path inside the WSL distro ` +
+          "(it must be on a local drive), and dropping it would widen the sandbox — refusing to confine.",
+      );
+    }
+    return linux;
+  });
+  return roots;
+}
+
 /** The bubblewrap arguments for one policy: everything before `--` and the command. */
 export function bwrapArgs(policy: SandboxPolicy, host: ProfileHost): string[] {
   const full = policy.mode === "danger-full-access";
@@ -108,6 +152,7 @@ export function bwrapArgs(policy: SandboxPolicy, host: ProfileHost): string[] {
     // rather than read it as an open network.
     throw new Error("penguin-wsl cannot confine to the local network (localhost only)");
   }
+  const readonly = readonlyRootsInDistro(policy, host);
   const args = ["--die-with-parent", "--unshare-all"];
   if (policy.network !== "none") args.push("--share-net");
   args.push(full ? "--bind" : "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc");
@@ -126,20 +171,40 @@ export function bwrapArgs(policy: SandboxPolicy, host: ProfileHost): string[] {
       for (const d of host.drives)
         args.push("--ro-bind", `${MOUNT_ROOT}/${d}`, `${MOUNT_ROOT}/${d}`);
     }
-    args.push(policy.mode === "workspace-write" ? "--bind" : "--ro-bind", workspace, workspace);
-    // The policy's further writable roots (the Session's scratchpad), where the distro can
-    // reach them: one that cannot be reached is left out, which confines more narrowly
-    // rather than more widely.
+    // Every path mount in the one order bwrap needs: deeper paths mount later (a later mount
+    // shadows an earlier one on every path beneath it), and at equal depth a read-only mount
+    // mounts after a writable one. The writable roots keep their two skips — inside the
+    // Workspace the bind is redundant, and one the distro cannot reach stays confined — while
+    // the read-only roots skip nothing: a state root inside the Workspace must mount AFTER the
+    // writable bind and shadow it, and the scratchpad, a deeper child of the state root,
+    // mounts later still and stays writable.
+    const mounts: DistroMount[] = [
+      {
+        path: workspace,
+        args: [policy.mode === "workspace-write" ? "--bind" : "--ro-bind", workspace, workspace],
+        readonly: policy.mode !== "workspace-write",
+      },
+    ];
     if (policy.mode === "workspace-write") {
       for (const root of policy.writableRoots ?? []) {
         const linux = toLinuxPath(root, host.distro);
-        if (linux !== null && !within(linux, [workspace])) args.push("--bind", linux, linux);
+        if (linux !== null && !within(linux, [workspace]))
+          mounts.push({ path: linux, args: ["--bind", linux, linux], readonly: false });
       }
     }
+    for (const linux of readonly)
+      mounts.push({ path: linux, args: ["--ro-bind", linux, linux], readonly: true });
+    mounts.sort((a, b) => depth(a.path) - depth(b.path) || Number(a.readonly) - Number(b.readonly));
+    for (const mount of mounts) args.push(...mount.args);
     // Last over /mnt, and only now: the binds above need a writable tmpfs to create their
     // mountpoints in, and the remount is what stops a write outside the Workspace from
     // "succeeding" into a tmpfs nobody ever reads.
     args.push(...RESOLV_MNT, "--remount-ro", MOUNT_ROOT);
+  } else {
+    // Full access binds `/` writable, so only a deeper mount can still hold a line read-only:
+    // the read-only roots apply in full mode too, mounting after it and shadowing it on
+    // exactly the paths they name.
+    for (const linux of readonly) args.push("--ro-bind", linux, linux);
   }
   for (const target of policy.maskPaths ?? []) {
     const kind = host.kind(target);

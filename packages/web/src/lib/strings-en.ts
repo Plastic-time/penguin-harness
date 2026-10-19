@@ -3663,6 +3663,8 @@ Scenarios:
       needsNoBackend: "Needs no sandbox backend.",
       effects: {
         "write-outside-workspace": "writing outside the workspace",
+        "write-own-state":
+          "writing the agent's own state (its memory, instructions and scheduled tasks stay read-only)",
         "write-anywhere": "writing any file",
         network: "all network access",
         "network-beyond-localhost": "network beyond localhost",

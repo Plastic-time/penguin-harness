@@ -15,6 +15,7 @@ import type { SessionRow } from "../src/db/repos/sessions.js";
 import type { SessionSandbox } from "../src/api/types.js";
 import { SandboxService } from "../src/sandbox/index.js";
 import { applySandboxPick, sessionSandboxOf } from "../src/services/session-service.js";
+import { ADMIN_USER_ID } from "../src/auth/service.js";
 
 const sqlite = process.getBuiltinModule("node:sqlite");
 
@@ -30,10 +31,27 @@ const NO_BACKEND = {
 /** The Sandbox card's presets table as a Session's view carries it with nothing saved. */
 const DEFAULT_PRESETS = (
   [
-    ["full-access", "Full Access", "完全访问", true, "danger-full-access", "allow-all"],
-    ["always-ask", "Always Ask", "每次询问", true, "danger-full-access", "always-ask"],
-    ["workspace-write", "Workspace Write", "仅工作区可写", true, "workspace-write", "allow-all"],
-    ["read-only", "Read Only", "只读", true, "read-only", "allow-all"],
+    ["full-access", "Full Access", "完全访问", true, "danger-full-access", "allow-all", false],
+    ["always-ask", "Always Ask", "每次询问", true, "danger-full-access", "always-ask", false],
+    [
+      "workspace-write",
+      "Workspace Write",
+      "仅工作区可写",
+      true,
+      "workspace-write",
+      "allow-all",
+      false,
+    ],
+    [
+      "workspace-write-state-readonly",
+      "Workspace Write, State Read-Only",
+      "工作区可写·状态只读",
+      true,
+      "workspace-write",
+      "allow-all",
+      true,
+    ],
+    ["read-only", "Read Only", "只读", true, "read-only", "allow-all", false],
     [
       "workspace-write-ask",
       "Workspace Write with Ask",
@@ -41,10 +59,11 @@ const DEFAULT_PRESETS = (
       false,
       "workspace-write",
       "always-ask",
+      false,
     ],
-    ["denied-all", "Denied All", "全部拒绝", false, "danger-full-access", "deny-all"],
+    ["denied-all", "Denied All", "全部拒绝", false, "danger-full-access", "deny-all", false],
   ] as const
-).map(([id, name, nameZh, enabled, mode, approvalMode]) => ({
+).map(([id, name, nameZh, enabled, mode, approvalMode, stateReadonly]) => ({
   id,
   name,
   nameZh,
@@ -52,6 +71,7 @@ const DEFAULT_PRESETS = (
   mode,
   network: "open",
   approvalMode,
+  ...(stateReadonly ? { stateReadonly: true } : {}),
 }));
 
 /** Served beside a policy on a server with no backend: the presets, and the switch on. */
@@ -140,6 +160,44 @@ describe("picking a Session's sandbox from the composer", () => {
       ],
     });
   });
+
+  it("carries the state-read-only flag beside the mode and the network, not as an extra", () => {
+    const view = sessionSandboxOf(
+      { mode: "workspace-write", stateReadonly: true },
+      [],
+      [],
+      DEFAULT_PRESETS as never,
+    );
+    expect(view.stateReadonly).toBe(true);
+    // A preset row shows it, so it is not "advanced" the way masked paths are.
+    expect(view.advanced).toBeUndefined();
+    expect(sessionSandboxOf({ mode: "workspace-write" }).stateReadonly).toBeUndefined();
+  });
+
+  it("lays the state-read-only pick over the snapshot: absent keeps, false clears for an admin, a non-admin cannot loosen", () => {
+    const held: SandboxSettings = { mode: "workspace-write", stateReadonly: true };
+    // Absent keeps what the snapshot holds, whoever asks.
+    expect(applySandboxPick(held, {}, { mode: "workspace-write" }, false)).toEqual({
+      mode: "workspace-write",
+      stateReadonly: true,
+    });
+    // An administrator may give a Session a writable agent state.
+    expect(
+      applySandboxPick(held, { stateReadonly: false }, { mode: "workspace-write" }, true),
+    ).toEqual({
+      mode: "workspace-write",
+    });
+    // A non-admin tightens onto the flag freely…
+    const plain: SandboxSettings = { mode: "workspace-write" };
+    expect(applySandboxPick(plain, { stateReadonly: true }, plain, false)).toEqual({
+      mode: "workspace-write",
+      stateReadonly: true,
+    });
+    // …but may not clear it while the server's settings keep the state read-only.
+    expect(() => applySandboxPick(held, { stateReadonly: false }, held, false)).toThrow(
+      /Only an administrator can give a Session a writable agent state/,
+    );
+  });
 });
 
 describe("the snapshot on the Session's row", () => {
@@ -153,6 +211,16 @@ describe("the snapshot on the Session's row", () => {
       expect(repo.findById("session-1")?.sandbox).toEqual({ mode: "danger-full-access" });
       repo.insert({ ...ROW, sessionId: "session-legacy" });
       expect(repo.findById("session-legacy")?.sandbox).toBeNull();
+      // The state-read-only flag rides the same snapshot.
+      repo.insert({
+        ...ROW,
+        sessionId: "session-state",
+        sandbox: { mode: "workspace-write", stateReadonly: true },
+      });
+      expect(repo.findById("session-state")?.sandbox).toEqual({
+        mode: "workspace-write",
+        stateReadonly: true,
+      });
     } finally {
       db.close();
     }
@@ -311,8 +379,8 @@ describe("the API: settings seed new Sessions, and never reach existing ones", (
         mode: "read-only",
         approvalMode: "allow-all",
       };
-      expect(presets[3]).toEqual({ ...readOnly, name: "Look only", network: "none" });
-      expect(presets[5]?.enabled).toBe(true);
+      expect(presets[4]).toEqual({ ...readOnly, name: "Look only", network: "none" });
+      expect(presets[6]?.enabled).toBe(true);
       expect((await defaults()).presets).toEqual(presets);
 
       // A Session created under masked paths holds what no preset shows.
@@ -377,6 +445,45 @@ describe("the API: settings seed new Sessions, and never reach existing ones", (
         sandbox: { network: "local" },
       });
       expect(t.deps.sessionsRepo.findById(id)!.sandbox).toEqual(held);
+    } finally {
+      await t.cleanup();
+    }
+  });
+
+  it("a Session created with the state-read-only pick snapshots it, and the settings seed it", async () => {
+    // The project id's suffix takes letters, digits and underscores: the hyphen is the
+    // user-namespace separator (project-service.ts), so not "state-readonly".
+    const { t, admin, owner, projectId, settings, post, create, body } =
+      await ownerProject("owner-state_readonly");
+    try {
+      // A Session is reached through its Project: the admin below clears the flag in place,
+      // and project access is by membership (no admin bypass), so it joins the Project.
+      expect(
+        (await owner.post(`/api/projects/${projectId}/members`, { userId: ADMIN_USER_ID })).status,
+      ).toBe(201);
+      // Seeded from the default preset: new Sessions start with the state held read-only.
+      expect(
+        (await settings({ enabled: true, defaultPreset: "workspace-write-state-readonly" })).status,
+      ).toBe(200);
+      expect((await create()).sandbox).toMatchObject({
+        mode: "workspace-write",
+        stateReadonly: true,
+      });
+      // And a pick at creation carries it the same way.
+      expect(
+        (await body(await post({ mode: "workspace-write", network: "open", stateReadonly: true })))
+          .sandbox,
+      ).toMatchObject({ mode: "workspace-write", stateReadonly: true });
+      // Clearing it is a non-admin loosening past the settings: refused.
+      const id = (await create()).sessionId;
+      const clear = { mode: "workspace-write", network: "open", stateReadonly: false };
+      const cleared = await owner.patch(`/api/sessions/${id}`, { sandbox: clear });
+      expect(cleared.status).toBe(403);
+      expect(await cleared.json()).toMatchObject({ error: { code: "sandbox_forbidden" } });
+      // An administrator clears it in place.
+      const patched = await admin.patch(`/api/sessions/${id}`, { sandbox: clear });
+      expect(patched.status, await patched.text()).toBe(200);
+      expect(t.deps.sessionsRepo.findById(id)?.sandbox).toEqual({ mode: "workspace-write" });
     } finally {
       await t.cleanup();
     }

@@ -40,6 +40,7 @@ const DIMENSION_WORDS: Record<SandboxDimension, readonly [string, string]> = {
   "network-local": ["localhost-only network", "仅本机网络"],
   "mask-paths": ["masked paths", "屏蔽路径"],
   "closed-temp": ["closing the temporary directory", "关闭临时目录"],
+  "readonly-roots": ["holding the agent state read-only", "Agent 状态只读"],
 };
 
 /** "a", "a and b", "a, b and c". */
@@ -162,6 +163,35 @@ export function unavailableNetworks(
 }
 
 /**
+ * The state-read-only cells no mounted backend can enforce, for the presets table's
+ * stateReadonly column: a `true` cell is greyed out wherever no backend declares the
+ * `readonly-roots` dimension — a Linux host whose DSH chain sits on bubblewrap, or a
+ * platform whose only backend is the DSH adaptor on its non-Landlock rung. The backends in
+ * use are named when there are any; with none mounted every confining choice is refused
+ * alike, which the card's warning says.
+ */
+export function unavailableStateReadonly(
+  backends: readonly MountedBackend[],
+): PluginConfigUnavailable[] {
+  if (backends.some((b) => b.dimensions.includes("readonly-roots"))) return [];
+  return [
+    {
+      field: "presets",
+      column: "stateReadonly",
+      value: "true",
+      reason:
+        backends.length > 0
+          ? `the sandbox backend in use here (${backends.map((b) => b.name).join(", ")}) cannot hold the agent state read-only`
+          : "no sandbox backend on this host supports it",
+      reasonZh:
+        backends.length > 0
+          ? `本机在用的沙盒后端（${backends.map((b) => b.name).join("、")}）无法把 Agent 状态保持只读`
+          : "本机的沙盒后端不支持",
+    },
+  ];
+}
+
+/**
  * The sandbox card's live notices: a warning when the saved policy needs isolation no usable
  * backend implements (every command would be refused), what the machine enforces, and each
  * backend that failed to load, with its reason. A backend that declined because this host is not
@@ -216,6 +246,7 @@ export class SandboxSettingsStatus {
       unavailable: () => [
         ...unavailableNetworks(sandbox.backends()),
         ...unavailableClosedTemp(sandbox.backends()),
+        ...unavailableStateReadonly(sandbox.backends()),
       ],
       notices: (stored, configuration): PluginConfigNotice[] => {
         const notices: PluginConfigNotice[] = [];

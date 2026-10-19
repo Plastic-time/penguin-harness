@@ -166,6 +166,8 @@ export class Environment implements EnvironmentInterface {
   private readonly services: EnvironmentServices;
   /** The Session's scratchpad, writable beside the Workspace under a workspace-write policy. */
   private readonly sessionScratchpadDir: string | null;
+  /** The Agent's per-agent root, held read-only by a `stateReadonly` policy (see EnvironmentConfig.agentStateRoot). */
+  private readonly agentStateRoot: string | null;
   /** The Session's confiner getter (see EnvironmentConfig.confineSpawn), for the stdio MCP servers and the file helper this Environment starts; commands take it through their session manager. */
   private readonly confineSpawn: (() => SpawnConfiner | null) | undefined;
   /** The file tools' sandboxed helper (see tools/fs-worker.ts): started at the first confined file operation, kept for the Session, restarted when the confiner's answer changes. */
@@ -192,8 +194,10 @@ export class Environment implements EnvironmentInterface {
       ...(config.sessionScratchpadDir !== undefined
         ? { scratchpadDir: config.sessionScratchpadDir }
         : {}),
+      ...(config.agentStateRoot !== undefined ? { stateRoot: config.agentStateRoot } : {}),
     });
     this.sessionScratchpadDir = config.sessionScratchpadDir ?? null;
+    this.agentStateRoot = config.agentStateRoot ?? null;
     this.confineSpawn = config.confineSpawn;
     this.subagentSessions = new SubagentSessionManager();
     // Background-task liveness fans in from both registries and from the subagent run-state
@@ -257,6 +261,7 @@ export class Environment implements EnvironmentInterface {
           ...(this.sessionScratchpadDir !== null
             ? { scratchpadDir: this.sessionScratchpadDir }
             : {}),
+          ...(this.agentStateRoot !== null ? { stateRoot: this.agentStateRoot } : {}),
         })
       : null;
   }
@@ -277,6 +282,7 @@ export class Environment implements EnvironmentInterface {
       cwd: this.workspaceDir,
       workspaceDir: this.workspaceDir,
       ...(this.sessionScratchpadDir !== null ? { scratchpadDir: this.sessionScratchpadDir } : {}),
+      ...(this.agentStateRoot !== null ? { stateRoot: this.agentStateRoot } : {}),
     });
     const unchanged =
       confined.env === undefined &&

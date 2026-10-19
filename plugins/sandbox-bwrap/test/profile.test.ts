@@ -12,6 +12,7 @@ import {
   bwrapSettingsOf,
   createPenguinBwrapProvider,
   loadPenguinBwrapProvider,
+  sortedMounts,
   vendoredRunner,
 } from "../src/index.js";
 
@@ -21,6 +22,14 @@ const WS = "/work/project";
 /** argv slice between two markers, for asserting order without pinning the whole array. */
 function after(argv: readonly string[], marker: string): readonly string[] {
   return argv.slice(argv.indexOf(marker));
+}
+
+/** Index of the `flag path path` mount in a profile, or -1: order assertions without offsets. */
+function mountAt(args: readonly string[], flag: string, mountPath: string): number {
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === flag && args[i + 1] === mountPath && args[i + 2] === mountPath) return i;
+  }
+  return -1;
 }
 
 describe("penguin-bwrap profile", () => {
@@ -154,6 +163,106 @@ describe("penguin-bwrap profile", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  // skipIf(win32): the profile echoes host path resolution, and bwrap never runs there.
+  it.skipIf(process.platform === "win32")(
+    "readonly-roots: every path mount in one order — deeper later, read-only winning ties",
+    () => {
+      // writableTemp grants TMPDIR's own depth; pin it so the asserted order is fixed.
+      const was = process.env.TMPDIR;
+      process.env.TMPDIR = "/tmp";
+      try {
+        const mounts = sortedMounts({
+          mode: "workspace-write",
+          workspaceRoot: "/work/project",
+          writableRoots: ["/work/project/scratch", "/data/agent/scratchpad/s"],
+          readonlyRoots: ["/work/project/state", "/etc"],
+          writableTemp: true,
+        });
+        // Deeper later; at the same depth the read-only mount follows the writable one.
+        expect(mounts.map((mount) => mount.path)).toEqual([
+          "/tmp",
+          "/etc",
+          "/work/project",
+          "/work/project/scratch",
+          "/work/project/state",
+          "/data/agent/scratchpad/s",
+        ]);
+      } finally {
+        if (was === undefined) delete process.env.TMPDIR;
+        else process.env.TMPDIR = was;
+      }
+    },
+  );
+
+  /** A workspace-write policy over the test Workspace, with these further roots. */
+  const ws = (readonlyRoots?: readonly string[], writableRoots?: readonly string[]) => ({
+    mode: "workspace-write" as const,
+    workspaceRoot: WS,
+    ...(readonlyRoots ? { readonlyRoots } : {}),
+    ...(writableRoots ? { writableRoots } : {}),
+  });
+
+  /** An order row's mounts — flag before path — in the order the profile must show them. */
+  const chain = (...pairs: [string, string][]) => pairs;
+
+  // Order rows: a later mount shadows an earlier one beneath it, so the order must hold.
+  it.skipIf(process.platform === "win32").each([
+    {
+      name: "a state root inside the workspace shadows the writable bind that covers it",
+      policy: ws(["/work/project/state"]),
+      order: chain(["--bind", WS], ["--ro-bind", "/work/project/state"]),
+    },
+    {
+      name: "the scratchpad inside the state root mounts later still and stays writable",
+      policy: ws(["/work/project/state"], ["/work/project/state/scratchpad"]),
+      order: chain(
+        ["--bind", WS],
+        ["--ro-bind", "/work/project/state"],
+        ["--bind", "/work/project/state/scratchpad"],
+      ),
+    },
+    {
+      name: "full access still mounts the read-only root, shadowing the writable bind of /",
+      policy: {
+        mode: "danger-full-access" as const,
+        workspaceRoot: WS,
+        readonlyRoots: ["/data/agent-state"],
+      },
+      order: chain(["--bind", "/"], ["--ro-bind", "/data/agent-state"]),
+    },
+  ])("$name", ({ policy, order }) => {
+    // Not skipped for falling inside a writable root: the ro-bind must be there, later.
+    const args = bwrapProfileArgs(policy);
+    let prev = -1;
+    for (const [flag, mount] of order) {
+      const at = mountAt(args, flag, mount);
+      expect(at, `${flag} ${mount}`).toBeGreaterThan(prev);
+      prev = at;
+    }
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "readonly-roots: deduplicated, and the temp tmpfs stays private when /tmp is a root",
+    () => {
+      const dupes = bwrapProfileArgs({
+        mode: "workspace-write",
+        workspaceRoot: WS,
+        readonlyRoots: ["/etc", "/etc"],
+        writableTemp: true,
+      }).join(" ");
+      expect(dupes.split("--ro-bind /etc /etc").length - 1).toBe(1);
+      expect(
+        bwrapProfileArgs({
+          mode: "workspace-write",
+          workspaceRoot: "/tmp",
+          readonlyRoots: [],
+          writableRoots: ["/tmp"],
+          writableTemp: true,
+        }).join(" "),
+      ).not.toContain("--bind /tmp /tmp");
+    },
+  );
 });
 
 describe("penguin-bwrap provider", () => {
@@ -163,6 +272,7 @@ describe("penguin-bwrap provider", () => {
       "network",
       "mask-paths",
       "closed-temp",
+      "readonly-roots",
     ]);
   });
 

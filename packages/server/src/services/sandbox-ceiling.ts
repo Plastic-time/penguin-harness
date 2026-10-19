@@ -20,20 +20,23 @@ const SANDBOX_NETWORK_RANK: Record<SessionSandbox["network"], number> = {
   open: 2,
 };
 
-/** A file mode and network level, as the composer names them. */
-export type SandboxLevel = Pick<SessionSandbox, "mode" | "network">;
+/** A file mode, network level and state-readonly flag, as the composer names them. */
+export type SandboxLevel = Pick<SessionSandbox, "mode" | "network" | "stateReadonly">;
 
 /**
- * Which dimension of `level` is wider than `ceiling` — the file mode first — or null when
- * neither is.
+ * Which dimension of `level` is wider than `ceiling` — the file mode first, then the
+ * network, then the state root — or null when none is. Holding the state read-only is the
+ * one direction where ABSENT is the wider value: a level without the flag gives the
+ * Session's commands a writable state where the ceiling keeps it read-only.
  */
 export function aboveSandboxCeiling(
   level: SandboxLevel,
   ceiling: SandboxLevel,
-): "mode" | "network" | null {
+): "mode" | "network" | "state" | null {
   if (SANDBOX_MODE_RANK[level.mode] > SANDBOX_MODE_RANK[ceiling.mode]) return "mode";
   if (SANDBOX_NETWORK_RANK[level.network] > SANDBOX_NETWORK_RANK[ceiling.network]) {
     return "network";
   }
+  if (level.stateReadonly !== true && ceiling.stateReadonly === true) return "state";
   return null;
 }

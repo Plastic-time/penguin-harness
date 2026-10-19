@@ -10,7 +10,7 @@
  *
  * A pick edits the Session's own policy and approval mode in one save: a Session keeps the
  * policy it was created with, so the Settings page only decides what NEW Sessions start from.
- * The Session stores the three values, never the preset: the button names it by the first row
+ * The Session stores the picked values, never the preset: the button names it by the first row
  * matching them, and says custom when none does. A preset this server cannot enforce is greyed
  * out rather than hidden, marked with why — with no sandbox backend installed, every preset
  * that confines. So is, for a non-admin, a preset wider than the server's sandbox settings
@@ -131,7 +131,7 @@ export function PermissionSelect({
    */
   approvalModes: readonly ApprovalMode[];
   sandbox: SessionSandbox;
-  /** Saves a preset's three values together; a returned promise keeps the pick on screen until it settles. */
+  /** Saves a preset's values together; a returned promise keeps the pick on screen until it settles. */
   onChange: (pick: PermissionPick) => void | Promise<unknown>;
   /** Blocks a second pick while one saves; deliberately NOT drawn dimmed (that read as a flicker). */
   disabled: boolean;

@@ -171,7 +171,8 @@ export class SandboxService {
       s.mode === "danger-full-access" &&
       s.network === undefined &&
       s.maskPaths === undefined &&
-      s.writableTemp === undefined
+      s.writableTemp === undefined &&
+      s.stateReadonly === undefined
     ) {
       return undefined;
     }
@@ -225,10 +226,11 @@ export class SandboxService {
     return (argv, opts) => {
       const settings = policyOf();
       const required = requestedDimensions(settings);
-      // Full access with nothing else asked (no network cut, no masked paths) is genuinely
-      // unconfined — spawn as-is. But full access that STILL cuts the network or masks a path
-      // needs a backend: returning here would silently drop that half of the policy. So the
-      // short-circuit is "no confinement dimension beyond fs-write", not "mode is full".
+      // Full access with nothing else asked (no network cut, no masked paths, no read-only
+      // state root) is genuinely unconfined — spawn as-is. But full access that STILL cuts the
+      // network, masks a path or holds the state root read-only needs a backend: returning
+      // here would silently drop that half of the policy. So the short-circuit is "no
+      // confinement dimension beyond fs-write", not "mode is full".
       if (settings.mode === "danger-full-access" && required.length === 1) return { argv };
       const provider = this.pick(required, settings.mode);
       // Only workspace-write binds further writable roots; under read-only (or full access
@@ -240,6 +242,23 @@ export class SandboxService {
       // it on disk: bubblewrap refuses to start on a missing bind source. Ensured on every
       // spawn, here, where every confined spawn meets — see SandboxPolicy.writableRoots.
       if (scratchpadDir !== undefined) ensureScratchpad(scratchpadDir);
+      // The read-only state root, the other half of a `stateReadonly` policy: the whole
+      // per-agent root the harness itself named at the spawn seam (opts.stateRoot), held
+      // read-only while the scratchpad — its deeper child — stays writable. The state root is
+      // NOT made here: creating it would fake the very protection the field promises, so a
+      // root missing on disk refuses the spawn, and so does a policy with no root to hold
+      // (a Session from an older core, or a standalone embedder that never had one).
+      if (settings.stateReadonly === true) {
+        const stateRoot = opts.stateRoot;
+        if (stateRoot === undefined) {
+          throw new Error(
+            "sandbox: the policy holds the agent state read-only, but this Session's spawn " +
+              "carries no per-agent state root (an older runtime, or a standalone embedder); " +
+              "refusing to run the command with the state writable.",
+          );
+        }
+        ensureStateRoot(stateRoot);
+      }
       // workspaceRoot is the Session's Workspace, never the per-command cwd: a command
       // running in a workdir outside the Workspace must not widen the writable roots.
       const policy: SandboxPolicy = {
@@ -248,6 +267,7 @@ export class SandboxService {
         // The Session's scratchpad is writable beside the Workspace: the plan file, a goal's
         // state file and the attachments live there, and hooks and commands both write it.
         ...(scratchpadDir !== undefined ? { writableRoots: [scratchpadDir] } : {}),
+        ...(settings.stateReadonly === true ? { readonlyRoots: [opts.stateRoot!] } : {}),
         ...(settings.network !== undefined ? { network: settings.network } : {}),
         ...(settings.maskPaths !== undefined && settings.maskPaths.length > 0
           ? { maskPaths: settings.maskPaths }
@@ -333,12 +353,29 @@ function ensureScratchpad(dir: string): void {
   }
 }
 
+/**
+ * Refuses the spawn unless the read-only state root is a directory that already exists on
+ * disk. The state root is the OPPOSITE contract of the scratchpad: it is not created here,
+ * because a directory the confiner silently made would fake the protection the policy
+ * promises — the root it claims to hold read-only would be one this code just wrote.
+ */
+function ensureStateRoot(dir: string): void {
+  const stat = fs.statSync(dir, { throwIfNoEntry: false });
+  if (stat === undefined || !stat.isDirectory()) {
+    throw new Error(
+      `cannot hold the agent state ${dir} read-only: it does not exist as a directory on this ` +
+        "machine; refusing to run the command with the state writable.",
+    );
+  }
+}
+
 function copySettings(settings: SandboxSettings): SandboxSettings {
   return {
     mode: settings.mode,
     ...(settings.network !== undefined ? { network: settings.network } : {}),
     ...(settings.maskPaths !== undefined ? { maskPaths: [...settings.maskPaths] } : {}),
     ...(settings.writableTemp !== undefined ? { writableTemp: settings.writableTemp } : {}),
+    ...(settings.stateReadonly !== undefined ? { stateReadonly: settings.stateReadonly } : {}),
   };
 }
 
@@ -376,6 +413,7 @@ export interface SandboxSlots {
         "network?": "'none'|'local'",
         "maskPaths?": "string[]",
         "writableTemp?": "boolean",
+        "stateReadonly?": "boolean",
       },
     },
   },

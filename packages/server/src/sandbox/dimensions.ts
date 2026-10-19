@@ -21,6 +21,7 @@ export const SANDBOX_DIMENSIONS: readonly SandboxDimension[] = [
   "network-local",
   "mask-paths",
   "closed-temp",
+  "readonly-roots",
 ];
 
 /** The dimensions a provider implements (absent declaration = filesystem only). */
@@ -38,5 +39,10 @@ export function requestedDimensions(settings: SandboxSettings): SandboxDimension
   if (settings.writableTemp === false && settings.mode !== "danger-full-access") {
     dims.push("closed-temp");
   }
+  // A read-only state root is orthogonal to the mode: it holds under full access too, so the
+  // short-circuit for "full access with nothing else asked" must not swallow it. Only a
+  // backend that declares the dimension may receive such a policy — ignoring the root would
+  // WIDEN confinement, the one direction the interface forbids.
+  if (settings.stateReadonly === true) dims.push("readonly-roots");
   return dims;
 }

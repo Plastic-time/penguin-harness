@@ -197,11 +197,14 @@ export class PluginConfigPage {
             const sentRows = isRecord(rows)
               ? { ...rows, ...(isRecord(rows[TABLE_ADDED]) ? rows[TABLE_ADDED] : {}) }
               : {};
+            // A cell holds its column's own type; the unavailable list names a boolean
+            // position by the word "true" / "false", so compare the word, as below.
+            const cell = (v: unknown) => (typeof v === "boolean" ? String(v) : v);
             const row = Object.entries(sentRows).find(
               ([id, cells]) =>
                 isRecord(cells) &&
-                cells[u.column!] === u.value &&
-                before(id)[u.column!] !== u.value,
+                cell(cells[u.column!]) === u.value &&
+                cell(before(id)[u.column!]) !== u.value,
             );
             if (row !== undefined) {
               const at = `${u.field}.${row[0]}.${u.column}`;

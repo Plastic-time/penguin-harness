@@ -2,7 +2,7 @@
 
 Puts the **DSH** sandbox ecosystem behind this harness's own sandbox interface. This is the
 portable floor: it works on Linux, macOS and Windows, and implements the `fs-write`
-dimension.
+dimension (`readonly-roots` too, on its Landlock rung).
 
 ## What it covers
 
@@ -16,7 +16,9 @@ functionally:
 | Windows | ACL restricted-token runner |
 
 DSH's policy vocabulary governs **file-write effects only**, so this adaptor declares
-exactly `fs-write`. The sandbox service therefore never routes a `network` or
+exactly `fs-write` — one extension: the Landlock rung also declares `readonly-roots`,
+because an allow-list needs no new vocabulary to hold a root read-only, only the grants it
+already spells. The sandbox service therefore never routes a `network` or
 `mask-paths` policy here, and the adaptor never has to silently drop a dimension it
 cannot honor — for those, use the bubblewrap, Seatbelt or WSL backend for your platform.
 Mounted beside one of those, it is used only where that backend is refused: the service
@@ -30,8 +32,11 @@ selects without probing.
 
 What every rung leaves open, disclosed on the card under what the machine enforces:
 
-- **The Session scratchpad is not writable** under Workspace Write. DSH's policy takes the
-  Workspace alone, so commands cannot write the plan, goal or attachment files kept there.
+- **The Session scratchpad is not writable** under Workspace Write on the rungs that keep
+  DSH's own profile: DSH's policy takes the Workspace alone, so commands cannot write the
+  plan, goal or attachment files kept there. The Landlock rung is the exception — the
+  adaptor splices the policy's writable roots into its grant set, so there the scratchpad
+  writes beside the Workspace.
 - **The temporary directory cannot be closed.** Every rung grants one under Workspace Write;
   Landlock grants the host's shared `/tmp`. The adaptor does not declare `closed-temp`, so the
   card greys out turning **Temporary directory writable** off, and a policy turning it off is

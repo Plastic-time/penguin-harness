@@ -10,7 +10,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseManifest } from "@prismshadow/penguin-core/kernel";
 import type { ModuleDef } from "@prismshadow/penguin-core/kernel";
-import type { SandboxPolicy } from "@prismshadow/penguin-core/plugin";
+import type { SandboxDimension, SandboxPolicy } from "@prismshadow/penguin-core/plugin";
 import type { PluginConfigResponse } from "../src/api/types.js";
 import type { PluginConfig } from "../src/plugin/config.js";
 import { PluginHost } from "../src/plugin/host.js";
@@ -24,8 +24,10 @@ interface Seen {
   runner: unknown;
 }
 
+const DIMS = ["fs-write", "network", "mask-paths", "closed-temp", "readonly-roots"] as const;
+
 /** A backend declaring a group inside the sandbox's and reading it at each confine. */
-function backend(seen: Seen[]): ModuleDef {
+function backend(seen: Seen[], dimensions: readonly SandboxDimension[] = DIMS): ModuleDef {
   return {
     manifest: parseManifest({
       name: "TestBackend",
@@ -35,11 +37,7 @@ function backend(seen: Seen[]): ModuleDef {
       provides: {},
       contributes: {
         "SandboxModule.providers": [
-          {
-            id: "test.provider",
-            name: "test-backend",
-            dimensions: ["fs-write", "network", "mask-paths", "closed-temp"],
-          },
+          { id: "test.provider", name: "test-backend", dimensions: [...dimensions] },
           // Installed for another platform: it declines here, and says nothing on the card.
           { id: "elsewhere.provider", name: "other-platform", dimensions: ["fs-write"] },
         ],
@@ -61,7 +59,7 @@ function backend(seen: Seen[]): ModuleDef {
         bind: {
           "elsewhere.provider": Promise.resolve(null),
           "test.provider": {
-            dimensions: ["fs-write", "network", "mask-paths", "closed-temp"],
+            dimensions: [...dimensions],
             confine(argv: readonly string[], policy: SandboxPolicy) {
               seen.push({ policy, runner: config.get("sandbox-test").runner });
               return {
@@ -113,7 +111,7 @@ describe("sandbox settings group", () => {
       expect.objectContaining({
         tone: "muted",
         // What this machine enforces, by the backend that serves (no mechanism declared: its name).
-        text: "Enforced here: file writes, network isolation, masked paths and closing the temporary directory, by test-backend. Not enforced here: localhost-only network.",
+        text: "Enforced here: file writes, network isolation, masked paths, closing the temporary directory and holding the agent state read-only, by test-backend. Not enforced here: localhost-only network.",
       }),
     ]);
     const child = entries.find((e) => e.name === "sandbox-test")!;
@@ -138,6 +136,64 @@ describe("sandbox settings group", () => {
     // Nothing was stored: the service still runs the defaults.
     expect(sandbox.currentSettings()).toEqual({ mode: "danger-full-access" });
     expect((await list()).find((e) => e.name === "sandbox")!.values.presets).toBeUndefined();
+  });
+
+  it("the state-read-only preset is a default like any other, and its row cell saves and un-saves", async () => {
+    const { t, admin, sandbox, list } = await appWith([]);
+    apps.push(t);
+    const save = (values: Record<string, unknown>) =>
+      admin.put("/api/admin/plugin-config", { name: "sandbox", values });
+    expect(
+      (await save({ enabled: true, defaultPreset: "workspace-write-state-readonly" })).status,
+    ).toBe(200);
+    // New Sessions start from Workspace Write with the agent state held read-only.
+    expect(sandbox.currentSettings()).toEqual({ mode: "workspace-write", stateReadonly: true });
+    // The row's cell persists: turning it off makes the same start plain Workspace Write.
+    expect(
+      (await save({ presets: { "workspace-write-state-readonly": { stateReadonly: false } } }))
+        .status,
+    ).toBe(200);
+    expect(sandbox.currentSettings()).toEqual({ mode: "workspace-write" });
+    expect((await list()).find((e) => e.name === "sandbox")!.values.presets).toEqual({
+      "workspace-write-state-readonly": { stateReadonly: false },
+    });
+    // And back on again.
+    expect(
+      (await save({ presets: { "workspace-write-state-readonly": { stateReadonly: true } } }))
+        .status,
+    ).toBe(200);
+    expect(sandbox.currentSettings()).toEqual({ mode: "workspace-write", stateReadonly: true });
+  });
+
+  it("greys the state-read-only cells out and refuses saving them where no backend declares the dimension", async () => {
+    // A backend that confines files only — the DSH adaptor's shape on its non-Landlock rung.
+    const host = new PluginHost();
+    host.use({ specifier: "fs-only-backend", modules: [backend([], ["fs-write"])], replaces: [] });
+    const t = await createTestApp({ plugins: host });
+    apps.push(t);
+    const admin = apiClient(t.app, (await loginAdmin(t.app)).cookie);
+    const sandbox = t.deps.tree.api<SandboxService>("SandboxModule", "sandbox");
+    await sandbox.whenReady();
+    const entry = (
+      (await (await admin.get("/api/admin/plugin-config")).json()) as PluginConfigResponse
+    ).plugins.find((e) => e.name === "sandbox")!;
+    expect(entry.unavailable).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: "presets", column: "stateReadonly", value: "true" }),
+      ]),
+    );
+    const refusedCell = await admin.put("/api/admin/plugin-config", {
+      name: "sandbox",
+      values: { presets: { "workspace-write": { stateReadonly: true } } },
+    });
+    expect(refusedCell.status).toBe(400);
+    expect(await refusedCell.text()).toContain("presets.workspace-write.stateReadonly");
+    // Nothing was stored: the service still runs the defaults, and the card shows no cell value.
+    expect(sandbox.currentSettings()).toEqual({ mode: "danger-full-access" });
+    const after = (
+      (await (await admin.get("/api/admin/plugin-config")).json()) as PluginConfigResponse
+    ).plugins.find((e) => e.name === "sandbox")!;
+    expect(after.values.presets).toBeUndefined();
   });
 
   it("starts new Sessions from the default preset, with the card's temp and masked paths beside it", async () => {
@@ -358,7 +414,7 @@ describe("sandbox settings group", () => {
       (e) => e.name === "sandbox",
     )!;
     expect(card.notices?.map((n) => n.text)).toEqual([
-      "Enforced here: file writes, by probed. Not enforced here: network isolation, localhost-only network, masked paths and closing the temporary directory.",
+      "Enforced here: file writes, by probed. Not enforced here: network isolation, localhost-only network, masked paths, closing the temporary directory and holding the agent state read-only.",
     ]);
     // Nothing failed any more: nothing to disclose under it.
     expect(card.notices?.[0]?.details).toBeUndefined();

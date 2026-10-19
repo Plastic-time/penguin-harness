@@ -112,6 +112,8 @@ export interface McpToolProviderOptions {
   confineSpawn?: () => SpawnConfiner | null;
   /** The Session's scratchpad, the confiner's scope beside the Workspace. */
   scratchpadDir?: string;
+  /** The Agent's per-agent root, the confiner's read-only root under a `stateReadonly` policy. */
+  stateRoot?: string;
   /**
    * The Agent's vault, read for the `${KEY}` references of the entries (see config.ts); a
    * reference it cannot fill skips that server as "needs setup". Absent = an empty vault.
@@ -251,6 +253,7 @@ export class McpToolProvider {
   private readonly workspaceDir: string | undefined;
   private readonly confineSpawn: (() => SpawnConfiner | null) | undefined;
   private readonly scratchpadDir: string | undefined;
+  private readonly stateRoot: string | undefined;
   private readonly warn: (message: string) => void;
   /** Single-flight connect+discovery of the servers still pending; resolved results live in the fields below. */
   private ensurePromise: Promise<void> | null = null;
@@ -272,6 +275,7 @@ export class McpToolProvider {
     this.workspaceDir = options?.workspaceDir;
     this.confineSpawn = options?.confineSpawn;
     this.scratchpadDir = options?.scratchpadDir;
+    this.stateRoot = options?.stateRoot;
     this.warn = options?.warn ?? ((message) => process.stderr.write(`[penguin] ${message}\n`));
   }
 
@@ -590,9 +594,9 @@ export class McpToolProvider {
 
   /**
    * The argv a stdio server is started with under the Session's sandbox: the confiner's
-   * answer, with the server's working directory as `cwd` and the Session's Workspace and
-   * scratchpad as scope; the argv itself when the Session has no confiner. A throw is the
-   * server's connect failure.
+   * answer, with the server's working directory as `cwd` and the Session's Workspace,
+   * scratchpad and per-agent state root as scope; the argv itself when the Session has no
+   * confiner. A throw is the server's connect failure.
    */
   private confine(argv: readonly string[], cwd: string | undefined): ConfinedSpawn {
     const confiner = this.confineSpawn?.() ?? null;
@@ -602,6 +606,7 @@ export class McpToolProvider {
         cwd: cwd ?? process.cwd(),
         workspaceDir: this.workspaceDir ?? cwd ?? process.cwd(),
         ...(this.scratchpadDir !== undefined ? { scratchpadDir: this.scratchpadDir } : {}),
+        ...(this.stateRoot !== undefined ? { stateRoot: this.stateRoot } : {}),
       });
     } catch (err) {
       throw new Error(`sandbox: ${describeError(err)}`);
