@@ -253,6 +253,66 @@ in plain text, and an issue is public and permanent.
 Questions and usage help belong on [Discord](https://discord.gg/eFHKqqcU3D) or in the
 WeChat group, not in the issue tracker.
 
+## Design RFCs
+
+Design documents (RFCs) for PenguinHarness live in the [`rfcs/`](../rfcs/) directory. Each RFC
+describes a design decision, architectural choice, or major feature proposal, and can be developed
+and reviewed independently from implementation PRs.
+
+### When to write an RFC
+
+Write an RFC when your proposal affects:
+
+- Core concepts or architecture (message protocol, plugin model, session lifecycle)
+- Major product behavior or user-facing changes
+- Integration of new subsystems or external dependencies
+- Significant changes to existing design decisions
+
+For smaller tasks (bug fixes, minor refactors, performance optimizations), an RFC is not needed.
+
+### RFC workflow
+
+1. **Create an RFC document** using the template at [`rfcs/TEMPLATE.md`](../rfcs/TEMPLATE.md).
+   Choose the next available RFC number (listed in [`rfcs/README.md`](../rfcs/README.md)) and name
+   your file `PRFC-NNNN-your-slug.md`.
+
+2. **Submit an RFC PR** to the design repository ([Prism-Shadow/penguin-harness-design](https://github.com/Prism-Shadow/penguin-harness-design))
+   or directly to this repository in `rfcs/` if you are adding a draft or iteration. The RFC is
+   reviewed before any implementation begins — design and code reviews are separate.
+
+3. **Implementation PRs reference the RFC** — mention the RFC number in your implementation PR title
+   or body so readers can find the design behind the code. RFC and implementation merge independently:
+   an RFC can be approved while implementation is still in draft, or vice versa.
+
+4. **Modify an approved RFC carefully**: once an RFC lands, changes should be rare. If you must update
+   it, raise the version number (e.g., `v1.0.0` → `v2.0.0`) and document the change in a `## Changes`
+   section at the end of the file. See the template for the format.
+
+### RFC format and required sections
+
+Every RFC must include:
+
+- **Summary** — one-paragraph overview of the proposal
+- **Motivation** — why this is needed, what problems it solves
+- **Guide-level explanation** — how to think about this feature (not implementation details yet)
+- **Reference-level explanation** — technical design, interactions with other systems
+- **Drawbacks** — what could go wrong, what we give up
+- **Rationale and alternatives** — why this design, what else was considered
+- **Unresolved questions** — what will be decided during implementation or after merging
+
+See [`rfcs/TEMPLATE.md`](../rfcs/TEMPLATE.md) for a complete example and filling guide.
+
+### Continuous integration for RFCs
+
+Pull requests that modify `rfcs/` are checked for:
+
+- Proper file naming (`PRFC-NNNN-slug.md`)
+- Consecutive numbering and no unexpected duplicates
+- Presence of required sections (Summary, Motivation, etc.)
+- For existing RFCs: version bump and `## Changes` section when content is modified
+
+If any check fails, CI will report the error and suggest corrections.
+
 ## Pull requests
 
 - Branch from `main`; keep PRs focused on one topic.
