@@ -3,6 +3,7 @@
  * live server.lock > auto-start), the remote-token gate, the SSE parser, and session
  * reference resolution (full id / unique fragment / ambiguity).
  */
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -19,6 +20,8 @@ import {
   resolveSessionRef,
   ServerClient,
   shortSessionId,
+  stopAutoStartedServer,
+  waitForServerReady,
 } from "../src/client.js";
 import { getMessages } from "../src/i18n.js";
 import { FakeServer } from "./fake-server.js";
@@ -123,6 +126,131 @@ describe("connection resolution", () => {
     expect(autoStartEntry("/x/dist/penguin.mjs")).not.toBeNull();
     expect(autoStartEntry("/x/src/penguin.ts")).toBeNull();
     expect(autoStartEntry(undefined)).toBeNull();
+  });
+
+  it("the auto-started banner names the address, the log, and how to stop the server", () => {
+    for (const lang of ["en", "zh"] as const) {
+      const text = getMessages(lang).client.autoStarted("http://localhost:42424", "/log/x.log");
+      expect(text).toContain("http://localhost:42424");
+      expect(text).toContain("/log/x.log");
+      expect(text).toContain("penguin server stop");
+    }
+  });
+});
+
+describe("auto-start readiness", () => {
+  it("a live lock is not a ready server: the 503 'starting' answer is waited out, any other response is ready", async () => {
+    const answers = [
+      new Response("penguin-server is starting", { status: 503, headers: { "retry-after": "1" } }),
+      new Response("penguin-server is starting", { status: 503 }),
+      // The auth middleware's 401 is the App answering — ready.
+      new Response("nope", { status: 401 }),
+    ];
+    let i = 0;
+    const fetchFn = (() => Promise.resolve(answers[i++])) as typeof fetch;
+    const out = await waitForServerReady("http://localhost:7399", { fetchFn, intervalMs: 1 });
+    expect(out).toEqual({ ready: true });
+    expect(i).toBe(3);
+  });
+
+  it("a 503 that never ends reports the server's own words as the reason", async () => {
+    const fetchFn = (() =>
+      Promise.resolve(new Response("penguin-server is starting", { status: 503 }))) as typeof fetch;
+    const out = await waitForServerReady("http://localhost:7399", {
+      fetchFn,
+      timeoutMs: 20,
+      intervalMs: 5,
+    });
+    expect(out).toEqual({ ready: false, last: "penguin-server is starting" });
+  });
+
+  it("a refused connection keeps polling and resolves when the server comes up", async () => {
+    let calls = 0;
+    const fetchFn = (() => {
+      calls++;
+      if (calls < 3) return Promise.reject(new TypeError("fetch failed"));
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    }) as typeof fetch;
+    const out = await waitForServerReady("http://localhost:7399", { fetchFn, intervalMs: 1 });
+    expect(out).toEqual({ ready: true });
+    expect(calls).toBe(3);
+  });
+
+  it("stopAutoStartedServer reaps a child that ignores SIGTERM (grace, then SIGKILL)", async () => {
+    const child = spawn(
+      process.execPath,
+      ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"],
+      { detached: true, stdio: "ignore" },
+    );
+    child.unref();
+    // Let the child install its SIGTERM handler before it is asked to die.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await stopAutoStartedServer(child, { graceMs: 500 });
+    expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
+  });
+});
+
+describe("the server's two plain-text 503s", () => {
+  const conn = {
+    baseUrl: "http://localhost:7399",
+    root: "/no-such-root",
+    autoStarted: false,
+    loopback: true,
+    fromRoot: false,
+  };
+  const cases: Array<{ body: string; code: string; match: RegExp }> = [
+    {
+      body: "penguin-server is starting",
+      code: "starting",
+      match: /still starting/,
+    },
+    {
+      body: "penguin-server has no running platform: no generation",
+      code: "no_platform",
+      match: /no running platform: no generation/,
+    },
+  ];
+  for (const { body, code, match } of cases) {
+    it(`a 503 "${body.slice(0, 24)}…" becomes an actionable message, not a bare http_error`, async () => {
+      const saved = globalThis.fetch;
+      globalThis.fetch = (() =>
+        Promise.resolve(
+          new Response(body, { status: 503, headers: { "content-type": "text/plain" } }),
+        )) as typeof globalThis.fetch;
+      try {
+        const client = new ServerClient(conn, t);
+        await expect(client.request("GET", "/api/version")).rejects.toMatchObject({
+          status: 503,
+          code,
+          message: expect.stringMatching(match),
+        });
+      } finally {
+        globalThis.fetch = saved;
+      }
+    });
+  }
+
+  it("a 503 with a JSON error body keeps the generic rendering (the server's code is the message)", async () => {
+    const saved = globalThis.fetch;
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            error: { code: "browser_unavailable", message: "not in the desktop app" },
+          }),
+          { status: 503, headers: { "content-type": "application/json" } },
+        ),
+      )) as typeof globalThis.fetch;
+    try {
+      const client = new ServerClient(conn, t);
+      await expect(client.request("GET", "/api/version")).rejects.toMatchObject({
+        status: 503,
+        code: "browser_unavailable",
+        message: expect.stringContaining("not in the desktop app"),
+      });
+    } finally {
+      globalThis.fetch = saved;
+    }
   });
 });
 

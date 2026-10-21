@@ -16,8 +16,10 @@
  *      gets that server's root as PENGUIN_HOME unless its caller set one (the server's
  *      services/cli-shim.ts), so it attaches to that server rather than the installed one.
  *   4. Auto-start: spawn a detached `node <cli entry> server` with PORT=0, wait for its
- *      lock, attach. The loser of a two-CLI spawn race exits with code 3 ("already
- *      running"), which the lock poll absorbs — it finds the winner's lock either way.
+ *      lock AND for the server to answer real requests, attach. The loser of a two-CLI
+ *      spawn race exits with code 3 ("already running"), which the lock poll absorbs —
+ *      it finds the winner's lock either way. A server that never becomes ready is
+ *      reaped again (stopAutoStartedServer), so a failed auto-start leaves nothing behind.
  *
  * Token resolution: PENGUIN_API_TOKEN, else `<root>/api-token` (written by the server
  * each boot). A 401 with a file-sourced token re-reads the file once and retries — the
@@ -32,10 +34,12 @@
  * point. Every other request goes exactly as above.
  */
 import { spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { resolveRoot } from "@prismshadow/penguin-core";
-import { liveServerLock } from "@prismshadow/penguin-server/lock";
+import { liveServerLock, readServerLock } from "@prismshadow/penguin-server/lock";
+import type { ServerLock } from "@prismshadow/penguin-server/lock";
 import { readSession } from "./auth-session.js";
 import type { Messages } from "./i18n.js";
 
@@ -53,6 +57,15 @@ const SESSION_COOKIE = "penguin_session";
 
 /** The server's refusal of the local API token on a write only a person may make (requireHuman). */
 const HUMAN_REQUIRED = "human_required";
+
+/**
+ * The openers of the server's two plain-text 503 bodies (server/src/hmr/starting.ts) —
+ * what the entry answers before buildApp() and the HMR seam answers with no platform
+ * current. Matched by prefix so wording tweaks beyond the opener do not drift; a body
+ * starting with neither keeps the generic `http_error` rendering.
+ */
+const STARTING_BODY = "penguin-server is starting";
+const NO_PLATFORM_BODY = "penguin-server has no running platform: ";
 
 export interface Connection {
   /** Normalized base URL, no trailing slash. */
@@ -160,22 +173,120 @@ function localDate(d = new Date()): string {
 }
 
 /**
+ * One readiness probe's verdict: ready, or the server's own last word on why not (the
+ * text of its last 503, or the fetch error) — what an auto-start failure reports.
+ */
+export type ReadinessOutcome = { ready: true } | { ready: false; last: string };
+
+/**
+ * Waits until a server answers real requests. A live lock is NOT that: the server entry
+ * binds its port and records the data-root lock BEFORE the App exists, and until
+ * buildApp() every request — the CLI's first included — is answered 503
+ * "penguin-server is starting" (plain text, `retry-after: 1`) without ever reaching the
+ * access log. Ready is therefore any response that is not a 503: the auth middleware
+ * answering 401 proves the App is up — and that its boot token is on disk, since
+ * createApp mints it before the entry can route anything.
+ */
+export async function waitForServerReady(
+  baseUrl: string,
+  opts: { timeoutMs?: number; intervalMs?: number; fetchFn?: typeof fetch } = {},
+): Promise<ReadinessOutcome> {
+  const fetchFn = opts.fetchFn ?? fetch;
+  const deadline = Date.now() + (opts.timeoutMs ?? 30_000);
+  let last = "no response yet";
+  for (;;) {
+    try {
+      // Each probe is capped so a port held by something that never answers cannot wedge
+      // the loop; `redirect: "manual"` keeps a loopback canonicalization 302 from being
+      // followed — the probe only asks whether the App is behind the port.
+      const res = await fetchFn(`${baseUrl}/api/version`, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(1000),
+      });
+      if (res.status !== 503) {
+        void res.body?.cancel();
+        return { ready: true };
+      }
+      last = (await res.text()).trim();
+    } catch (err) {
+      // Refused/reset mid-boot: the listener is not answering yet; keep polling.
+      last = err instanceof Error ? err.message : String(err);
+    }
+    if (Date.now() >= deadline) return { ready: false, last };
+    await new Promise((resolve) => setTimeout(resolve, opts.intervalMs ?? 250));
+  }
+}
+
+/**
+ * Stops a server this invocation spawned: SIGTERM, a bounded wait, then SIGKILL. On POSIX
+ * the spawn was detached, so the child leads its own process group and one negative-pid
+ * signal reaches the supervising CLI process AND the service under it (the lock's pid);
+ * Windows has no group signals, so the pids this flow knows are signalled one by one.
+ * SIGTERM lets a finished boot drain and release its root; a server still before
+ * buildApp() never reacts to it (its shutdown path needs deps it does not have yet), and
+ * a server that never served a request is exactly what must not be left running.
+ */
+export async function stopAutoStartedServer(
+  child: ChildProcess,
+  opts: { root?: string; lockPid?: number; graceMs?: number } = {},
+): Promise<void> {
+  const grace = opts.graceMs ?? 5_000;
+  const group = process.platform !== "win32";
+  const pids: number[] = [];
+  if (typeof opts.lockPid === "number") pids.push(opts.lockPid);
+  if (typeof child.pid === "number") pids.push(child.pid);
+  const signal = (sig: NodeJS.Signals): void => {
+    for (const pid of pids) {
+      try {
+        process.kill(group ? -pid : pid, sig);
+      } catch {
+        // Already gone (or never there): the polls below observe it.
+      }
+    }
+  };
+  const childGone = (): boolean => child.exitCode !== null || child.signalCode !== null;
+  // The server side of the stop is done when the lock no longer names it (a graceful
+  // exit releases the lock; a stale file left by SIGKILL is overwritten by the next boot).
+  const lockReleased = (): boolean => {
+    if (opts.root === undefined || opts.lockPid === undefined) return true;
+    const held = readServerLock(opts.root);
+    return held === null || held.pid !== opts.lockPid;
+  };
+  signal("SIGTERM");
+  const deadline = Date.now() + grace;
+  for (;;) {
+    if (childGone() && lockReleased()) return;
+    if (Date.now() >= deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  signal("SIGKILL");
+  // SIGKILL leaves no graceful path to observe: wait out only the child's exit event.
+  const killDeadline = Date.now() + Math.min(grace, 2_000);
+  while (!childGone() && Date.now() < killDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+/**
  * Spawns a detached local server (PORT=0 → ephemeral port), logs to
- * `<root>/logs/server-auto-<date>.log`, and waits for a live lock on the root. The lock
- * poll accepts ANY live server on the root: if a concurrent CLI won the spawn race, our
- * child exits 3 and the winner's lock satisfies the wait just the same.
+ * `<root>/logs/server-auto-<date>.log`, waits for a live lock on the root AND for the
+ * server behind it to answer real requests. The lock poll accepts ANY live server on
+ * the root: if a concurrent CLI won the spawn race, our child exits 3 and the winner's
+ * lock satisfies the wait just the same. A boot that fails or never becomes ready is
+ * reaped (stopAutoStartedServer) before the error is thrown, so this flow leaves no
+ * server behind that the user never got anything from.
  */
 export async function autoStartServer(
   root: string,
   t: Messages,
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; readyTimeoutMs?: number } = {},
 ): Promise<{ port: number; logPath: string }> {
   const entry = autoStartEntry(process.argv[1]);
   if (entry === null) throw new Error(t.client.autoStartUnavailable());
   fs.mkdirSync(path.join(root, "logs"), { recursive: true });
   const logPath = path.join(root, "logs", `server-auto-${localDate()}.log`);
   const fd = fs.openSync(logPath, "a");
-  let child: ReturnType<typeof spawn>;
+  let child: ChildProcess;
   try {
     child = spawn(process.execPath, [entry, "server"], {
       detached: true,
@@ -195,17 +306,44 @@ export async function autoStartServer(
   child.unref();
 
   const deadline = Date.now() + (opts.timeoutMs ?? 20_000);
+  let lock: ServerLock;
   for (;;) {
-    const lock = await liveServerLock(root);
-    if (lock !== null) return { port: lock.port, logPath };
+    const found = await liveServerLock(root);
+    if (found !== null) {
+      lock = found;
+      break;
+    }
     // Exit 3 = "another server owns this root" — the race's loser; keep polling for the
-    // winner's lock. Any other exit is a startup failure: point at the log.
+    // winner's lock. Any other exit is a startup failure: reap ours and point at the log.
     if (exitCode !== null && exitCode !== 3) {
+      await stopAutoStartedServer(child, { root });
       throw new Error(t.client.autoStartFailed(logPath));
     }
-    if (Date.now() >= deadline) throw new Error(t.client.autoStartFailed(logPath));
+    if (Date.now() >= deadline) {
+      await stopAutoStartedServer(child, { root });
+      throw new Error(t.client.autoStartFailed(logPath));
+    }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
+  // The lock is live, but the server answers 503 "starting" until its App is built —
+  // that window is exactly where a lock-only wait loses the user's request.
+  const ready = await waitForServerReady(`http://localhost:${lock.port}`, {
+    timeoutMs: opts.readyTimeoutMs ?? 30_000,
+  });
+  if (ready.ready) return { port: lock.port, logPath };
+  // A server our own child is still supervising is ours to reap; one a concurrent CLI
+  // won the race with (our child exited 3, or died under us) is not — say where it is
+  // and how to stop it instead, and a server that already died needs neither.
+  const ours = child.exitCode === null && child.signalCode === null;
+  const url = `http://localhost:${lock.port}`;
+  if (ours) {
+    await stopAutoStartedServer(child, { root, lockPid: lock.pid });
+    throw new Error(t.client.autoStartStopped(url, ready.last, logPath));
+  }
+  if ((await liveServerLock(root)) !== null) {
+    throw new Error(t.client.autoStartStillRunning(url, ready.last, logPath));
+  }
+  throw new Error(t.client.autoStartFailed(logPath));
 }
 
 /** Resolves where to connect (see the module doc for the order); may auto-start a server. */
@@ -374,8 +512,9 @@ export class ServerClient {
     let code = "http_error";
     let message = "";
     let payload: unknown;
+    const text = await res.text().catch(() => "");
     try {
-      payload = await res.json();
+      payload = JSON.parse(text);
       const body = payload as { error?: { code?: string; message?: string } } | null;
       if (body?.error?.code) code = body.error.code;
       if (body?.error?.message) message = body.error.message;
@@ -390,6 +529,27 @@ export class ServerClient {
           ? this.t.client.noToken(this.conn.baseUrl, apiTokenPath(this.conn.root))
           : this.t.client.authFailed(this.conn.baseUrl),
       );
+    }
+    // The server's two known plain-text 503s (see STARTING_BODY) say what is wrong all by
+    // themselves; rendering them as a bare "Server error 503 (http_error)" hides the one
+    // thing the user can act on.
+    if (res.status === 503 && code === "http_error") {
+      if (text.startsWith(STARTING_BODY)) {
+        return new ApiError(
+          503,
+          "starting",
+          this.t.client.serverStarting(this.conn.baseUrl),
+          payload,
+        );
+      }
+      if (text.startsWith(NO_PLATFORM_BODY)) {
+        return new ApiError(
+          503,
+          "no_platform",
+          this.t.client.serverNoPlatform(this.conn.baseUrl, text.slice(NO_PLATFORM_BODY.length)),
+          payload,
+        );
+      }
     }
     return new ApiError(
       res.status,

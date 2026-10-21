@@ -812,8 +812,20 @@ export interface Messages {
     /** Auto-start impossible: the CLI entry is not plain-node runnable (tsx dev run). */
     autoStartUnavailable(): string;
     autoStartFailed(logPath: string): string;
-    /** Printed to stderr when a server was auto-started for this invocation. */
+    /** The auto-started server never answered real requests; this invocation stopped it again. */
+    autoStartStopped(url: string, reason: string, logPath: string): string;
+    /** Same, but the server is a concurrent CLI's (spawn race): where it is, and how to stop it. */
+    autoStartStillRunning(url: string, reason: string, logPath: string): string;
+    /**
+     * Printed to stderr when a server was auto-started for this invocation: its address,
+     * its log, and how to stop it — the server stays running for later commands, so the
+     * user must be able to name and end it.
+     */
     autoStarted(url: string, logPath: string): string;
+    /** A 503 whose plain-text body is the server's "is starting": temporary, retry. */
+    serverStarting(url: string): string;
+    /** A 503 whose plain-text body is the server's no-platform answer: the reason rides along. */
+    serverNoPlatform(url: string, reason: string): string;
     /** 401 with no token found anywhere (env or file). */
     noToken(url: string, tokenPath: string): string;
     /** 401 despite presenting a token. */
@@ -1957,7 +1969,15 @@ const en: Messages = {
       "No running server found, and this CLI entry cannot auto-start one (development run). Start it yourself with `penguin server`.",
     autoStartFailed: (logPath) =>
       `The auto-started server did not come up. Its output is in ${logPath}.`,
-    autoStarted: (url, logPath) => `Started a local server at ${url} (log: ${logPath}).`,
+    autoStartStopped: (url, reason, logPath) =>
+      `The auto-started server at ${url} never became ready (${reason}) and was stopped. Its output is in ${logPath}.`,
+    autoStartStillRunning: (url, reason, logPath) =>
+      `The local server at ${url} never became ready (${reason}) and is still running — stop it with \`penguin server stop\`. Its output is in ${logPath}.`,
+    autoStarted: (url, logPath) =>
+      `Started a local server at ${url} (log: ${logPath}). It stays running for later commands; stop it with \`penguin server stop\`.`,
+    serverStarting: (url) => `${url} is still starting; wait a moment and run the command again.`,
+    serverNoPlatform: (url, reason) =>
+      `${url} has no running platform: ${reason}. A server in this state cannot serve commands; restore its platform (a push or a reinstall) and retry.`,
     noToken: (url, tokenPath) =>
       `${url} rejected the request (401) and no API token is available: set PENGUIN_API_TOKEN, or make sure the server's token file is readable at ${tokenPath}.`,
     authFailed: (url) =>
@@ -3050,7 +3070,15 @@ const zh: Messages = {
     autoStartUnavailable: () =>
       "没有正在运行的服务器，且当前 CLI 入口无法自动拉起（开发态运行）。请自行执行 `penguin server`。",
     autoStartFailed: (logPath) => `自动启动的服务器未能就绪，输出见 ${logPath}。`,
-    autoStarted: (url, logPath) => `已在本机启动服务器 ${url}（日志：${logPath}）。`,
+    autoStartStopped: (url, reason, logPath) =>
+      `自动启动的服务器 ${url} 一直未能就绪（${reason}），已将其停止。输出见 ${logPath}。`,
+    autoStartStillRunning: (url, reason, logPath) =>
+      `本机服务器 ${url} 一直未能就绪（${reason}），仍在运行——请用 \`penguin server stop\` 停止它。输出见 ${logPath}。`,
+    autoStarted: (url, logPath) =>
+      `已在本机启动服务器 ${url}（日志：${logPath}）。它会继续运行供后续命令使用；停止请执行 \`penguin server stop\`。`,
+    serverStarting: (url) => `${url} 仍在启动中，请稍候再重新执行该命令。`,
+    serverNoPlatform: (url, reason) =>
+      `${url} 没有正在运行的平台：${reason}。此状态的服务器无法处理命令，请恢复其平台（推送或重装）后重试。`,
     noToken: (url, tokenPath) =>
       `${url} 拒绝了请求（401），且没有可用的 API token：请设置 PENGUIN_API_TOKEN，或确认服务器的 token 文件可读（${tokenPath}）。`,
     authFailed: (url) =>
