@@ -10,11 +10,9 @@ import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { migrate } from "./migrations/index.js";
 import { SCHEMA_SQL } from "./schema.js";
-
-// Fetch the runtime module via process.getBuiltinModule (node >=22.3): avoids static
-// resolution of `node:sqlite` by bundlers/vite (some tools' builtin lists don't yet
-// recognize this experimental module).
-const sqlite = process.getBuiltinModule("node:sqlite");
+// The runtime module is fetched lazily and guarded — a bare module-scope capture turns a
+// runtime without node:sqlite into a cryptic late TypeError; see node-sqlite.ts.
+import { nodeSqlite } from "../node-sqlite.js";
 
 /**
  * Opens an EXISTING database for a narrow write, without running any schema work.
@@ -26,7 +24,8 @@ const sqlite = process.getBuiltinModule("node:sqlite");
  * token mint should do. The caller has already established that the file exists.
  */
 export function openExistingDatabase(dbPath: string): DatabaseSync {
-  const db = new sqlite.DatabaseSync(dbPath);
+  const { DatabaseSync } = nodeSqlite();
+  const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA foreign_keys = ON;");
   // Wait for the live server's write lock instead of failing SQLITE_BUSY at once.
   db.exec("PRAGMA busy_timeout = 5000;");
@@ -41,7 +40,8 @@ export function openExistingDatabase(dbPath: string): DatabaseSync {
  * the file exists; a read-only open of a missing file is an error, not a creation.
  */
 export function openDatabaseReadOnly(dbPath: string): DatabaseSync {
-  const db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
+  const { DatabaseSync } = nodeSqlite();
+  const db = new DatabaseSync(dbPath, { readOnly: true });
   db.exec("PRAGMA busy_timeout = 5000;");
   return db;
 }
@@ -51,7 +51,8 @@ export function openDatabase(dbPath: string): DatabaseSync {
   if (dbPath !== ":memory:") {
     mkdirSync(path.dirname(dbPath), { recursive: true });
   }
-  const db = new sqlite.DatabaseSync(dbPath);
+  const { DatabaseSync } = nodeSqlite();
+  const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA journal_mode = WAL;");
   // A second connection (the CLI minting a token while the server runs) waits for the write
   // lock rather than failing SQLITE_BUSY at once.

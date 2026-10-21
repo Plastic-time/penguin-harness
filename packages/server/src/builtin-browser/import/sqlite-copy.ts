@@ -9,9 +9,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type { ImportEnv } from "./index.js";
-
-// Resolved at runtime, like db/database.ts: keeps bundlers from resolving `node:sqlite` statically.
-const sqlite = process.getBuiltinModule("node:sqlite");
+// Resolved lazily and guarded, like db/database.ts — see node-sqlite.ts.
+import { nodeSqlite } from "../../node-sqlite.js";
 
 const COMPANIONS = ["-wal", "-shm", "-journal"];
 
@@ -31,7 +30,8 @@ export async function readDatabaseCopy<T>(
         if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
       }
     }
-    const db = new sqlite.DatabaseSync(copy, { readOnly: true });
+    const { DatabaseSync } = nodeSqlite();
+    const db = new DatabaseSync(copy, { readOnly: true });
     try {
       return read(db);
     } finally {
