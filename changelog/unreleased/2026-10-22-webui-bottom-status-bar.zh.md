@@ -3,6 +3,7 @@
 - **Date:** 2026-10-22
 - **Type:** feat
 - **Scope:** `web`, `server`
+- **PR:** [#1286](https://github.com/Prism-Shadow/penguin-harness/pull/1286)
 
 [English](2026-10-22-webui-bottom-status-bar.md)
 
