@@ -3,6 +3,7 @@
 - **Date:** 2026-10-21
 - **Type:** fix
 - **Scope:** `web`
+- **PR:** [#1278](https://github.com/Prism-Shadow/penguin-harness/pull/1278)
 
 [中文版](2026-10-21-client-backoff-on-failed-roadmaps-reads.zh.md)
 
