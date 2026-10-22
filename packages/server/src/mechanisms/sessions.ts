@@ -26,6 +26,8 @@ export abstract class SessionIndex {
   abstract findById(sessionId: string): SessionRow | null;
   abstract listByAgent(projectId: string, agentId: string): SessionRow[];
   abstract listByProject(projectId: string): SessionRow[];
+  /** Every row across all Projects (newest activity first) — the harness-wide status bar's view. */
+  abstract listAll(): SessionRow[];
   abstract updateApprovalMode(sessionId: string, mode: ApprovalMode): void;
   abstract updateSandbox(sessionId: string, sandbox: SandboxSettings): void;
   abstract updateThinkingLevel(sessionId: string, level: ThinkingLevelName): void;

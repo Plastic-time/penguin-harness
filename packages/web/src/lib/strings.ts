@@ -6234,6 +6234,40 @@ Benchmark：
       loadFailed: "手册加载失败",
     },
   },
+  /**
+   * The status bar along the bottom of the shell (the admin's own harness view): the
+   * machine on the left, the harness on the right. The three right-side labels are the
+   * user's own field names and stay the same words in both languages.
+   */
+  statusBar: {
+    /** The bar's left side — the machine this harness runs on. */
+    cpu: "CPU",
+    memory: "内存",
+    /** The CPU read while the sampler's first window is still open. */
+    measuring: "测量中",
+    /** The memory pair, e.g. `6.2 / 16 GB`. */
+    memoryOf: (used: string, total: string): string => `${used} / ${total} GB`,
+    cpuTooltip: "整机 CPU 利用率",
+    memoryTooltip: "已用 / 总内存",
+    /** The bar's right side — the three labeled fields, in the order the bar shows them. */
+    companyLabel: "company",
+    workdirLabel: "workdir",
+    companyTooltip: "当前打开的组织",
+    workdirTooltip: "当前会话的工作目录（Workspace）",
+    /** The session counts. The format is the user's own and stays identical in both languages. */
+    sessions: (running: number, all: number): string => `session: ${running} / ${all}`,
+    sessionsTooltip: "整个 harness：运行中 / 全部（不含已从列表移除的）",
+    /** The list the counts open. */
+    listTitle: "整个 harness 的 Session",
+    listEmpty: "没有 Session",
+    /** The one-time mark a Session the user has opened carries once it goes idle. */
+    markedIdle: "已空闲",
+    runningLabel: "运行中",
+    idleLabel: "空闲",
+    remove: "从列表移除",
+    removeHint: "从列表移除；「全部」计数随之减一",
+    olderHidden: (n: number): string => `还有 ${n} 个更早的 Session 未显示`,
+  },
   errors: {
     networkError: "网络错误，请检查连接",
     /**

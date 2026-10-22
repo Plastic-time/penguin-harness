@@ -321,6 +321,12 @@ export const KEY_RULES: readonly KeyRule[] = [
   },
   {
     kind: "family",
+    key: "penguin.statusBar.",
+    scope: "install",
+    why: "The status bar's bookkeeping sets of Session ids — opened, marked idle, closed out of the list. The ids are this root's; a new root knows none of them, and a closed id carried over would wrongly subtract from its counts.",
+  },
+  {
+    kind: "family",
     key: "penguin.machineSessions.",
     scope: "install",
     why: "The Sessions each machine was last seen holding, shown until its connection is held again. Project id and machine id in the key, Session ids in the value — a new root knows none of them.",

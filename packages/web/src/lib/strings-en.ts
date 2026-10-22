@@ -6020,6 +6020,40 @@ Scenarios:
       loadFailed: "Could not load the handbook",
     },
   },
+  /**
+   * The status bar along the bottom of the shell (the admin's own harness view): the
+   * machine on the left, the harness on the right. The three right-side labels are the
+   * user's own field names and stay the same words in both languages.
+   */
+  statusBar: {
+    /** The bar's left side — the machine this harness runs on. */
+    cpu: "CPU",
+    memory: "Memory",
+    /** The CPU read while the sampler's first window is still open. */
+    measuring: "measuring",
+    /** The memory pair, e.g. `6.2 / 16 GB`. */
+    memoryOf: (used: string, total: string): string => `${used} / ${total} GB`,
+    cpuTooltip: "Whole-machine CPU utilization",
+    memoryTooltip: "Used / total memory",
+    /** The bar's right side — the three labeled fields, in the order the bar shows them. */
+    companyLabel: "company",
+    workdirLabel: "workdir",
+    companyTooltip: "The organization currently open",
+    workdirTooltip: "The workspace of the Session you are on",
+    /** The session counts. The format is the user's own and stays identical in both languages. */
+    sessions: (running: number, all: number): string => `session: ${running} / ${all}`,
+    sessionsTooltip: "The whole harness: running / all (excluding ones removed from the list)",
+    /** The list the counts open. */
+    listTitle: "Sessions across the harness",
+    listEmpty: "No sessions",
+    /** The one-time mark a Session the user has opened carries once it goes idle. */
+    markedIdle: "Went idle",
+    runningLabel: "Running",
+    idleLabel: "Idle",
+    remove: "Remove from the list",
+    removeHint: "Remove from the list; the all count goes down by one with it",
+    olderHidden: (n: number): string => `${n} older sessions not shown`,
+  },
   errors: {
     networkError: "Network error, please check your connection",
     notTheServer: {

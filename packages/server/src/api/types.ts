@@ -1997,6 +1997,43 @@ export interface SessionsResponse {
   workspaceLatestActive?: Record<string, string>;
 }
 
+// Harness status bar (admin) ----------------------------------------------------------------
+
+/**
+ * One Session of the harness-wide list the status bar shows: the row's durable fields plus
+ * the live run status (idle unless a runtime entry is working in it right now).
+ */
+export interface HarnessStatusSession {
+  sessionId: string;
+  projectId: string;
+  agentId: string;
+  /** Auto-generated title; null = not generated yet (the bar shows its "untitled" label). */
+  title: string | null;
+  /** The filesystem path locked in at creation — the bar's "workdir" of this Session. */
+  workspace: string;
+  /** The row's creating client (web / cli / org / api / workbench); null = legacy row. */
+  client: "web" | "cli" | "org" | "api" | "workbench" | null;
+  status: SessionStatus;
+  lastActiveAt: string;
+}
+
+/** Response of GET /api/harness-status — the status bar's single poll (admin-only). */
+export interface HarnessStatusResponse {
+  /** Sessions with a Task in progress or a compaction running, over the WHOLE harness. */
+  running: number;
+  /** Every Session the harness holds — all Projects, every client, archived rows included. */
+  total: number;
+  /** The newest Sessions by activity, capped (see the route's limit); the bar's list. */
+  sessions: HarnessStatusSession[];
+  /** The machine's load for the bar's left side. */
+  system: {
+    /** Whole-machine CPU utilization over the last sample window, 0–100; null while measuring. */
+    cpuPercent: number | null;
+    memoryUsedBytes: number;
+    memoryTotalBytes: number;
+  };
+}
+
 /**
  * The archive page's source filter: `user` is a conversation the user archived by hand (source
  * `user`, or a row whose Trace has not been read yet); the other three are what a program

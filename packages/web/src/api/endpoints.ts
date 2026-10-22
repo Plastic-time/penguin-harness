@@ -60,6 +60,7 @@ import type {
   FilesStatResponse,
   FilesWriteRequest,
   GoalResponse,
+  HarnessStatusResponse,
   InstallResponse,
   MachinesResponse,
   McpServerTestResponse,
@@ -292,6 +293,14 @@ export const getPrefs = () => apiFetch<PrefsResponse>("/api/me/prefs");
 
 export const putPrefs = (prefs: UiPrefs) =>
   apiFetch<PrefsResponse>("/api/me/prefs", { method: "PUT", body: prefs });
+
+// Harness status bar (admin only) ---------------------------------------------------------
+
+/**
+ * The status bar's single poll: harness-wide session counts and list, plus the machine's
+ * CPU/memory. 403 for a non-admin — the bar hides itself when it sees that.
+ */
+export const getHarnessStatus = () => apiFetch<HarnessStatusResponse>("/api/harness-status");
 
 // Admin user management (admin only) -----------------------------------------------------
 

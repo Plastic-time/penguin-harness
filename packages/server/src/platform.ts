@@ -140,6 +140,8 @@ import { InstalledPluginRoutes } from "./http/routes/plugins-installed.js";
 import { NpmPluginPackages } from "./plugin/install.js";
 import { SuggestIdRoutes } from "./http/routes/suggest-id.js";
 import { LanguageRoutes } from "./http/routes/languages.js";
+import { HarnessStatusRoutes } from "./http/routes/harness-status.js";
+import { SystemStatusService } from "./services/system-status.js";
 import { Languages, LanguagesModule } from "./languages/service.js";
 import { TerminalModule } from "./terminal/manager.js";
 import { SessionApiRoutes } from "./http/routes/sessions.js";
@@ -478,6 +480,8 @@ export class CompanyModule {}
     SuggestIdRoutes,
     LanguagesModule,
     LanguageRoutes,
+    SystemStatusService,
+    HarnessStatusRoutes,
   ],
   exports: [Http, WebShell, UpdateCheck],
 })

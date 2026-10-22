@@ -270,6 +270,19 @@ export class SessionsRepo implements SessionIndex {
     return rows.map(mapRow);
   }
 
+  /**
+   * Every row the harness holds — all Projects, every creating client (web / cli / org /
+   * api / workbench) alike — newest activity first. The harness-wide view the status bar
+   * reads: its counts and its list are deliberately not scoped to one Project, which is
+   * the one surface that differs from every listBy* above.
+   */
+  listAll(): SessionRow[] {
+    const rows = this.db
+      .prepare("SELECT * FROM sessions ORDER BY last_active_at DESC, session_id DESC")
+      .all();
+    return rows.map(mapRow);
+  }
+
   updateApprovalMode(sessionId: string, mode: ApprovalMode): void {
     this.db
       .prepare("UPDATE sessions SET approval_mode = ? WHERE session_id = ?")

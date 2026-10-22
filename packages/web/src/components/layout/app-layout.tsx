@@ -51,6 +51,7 @@ import { DRAFT_SESSION_ID } from "../../features/chat/chat-page";
 import { useNewChat } from "../../features/chat/use-new-chat";
 import { ChangePasswordDialog } from "../account/change-password-dialog";
 import { AppInfoDialog } from "../account/app-info-dialog";
+import { StatusBar } from "./status-bar";
 import { TerminalDockRuntime } from "../../features/terminal/terminal-view-pool";
 import { ShortcutRuntime } from "../../features/settings/shortcut-runtime";
 import { BuiltinBrowserLayer } from "../../features/builtin-browser/browser-layer";
@@ -508,6 +509,10 @@ export function AppLayout() {
           reloads, so navigating the app must never re-parent one. */}
       <BuiltinBrowserLayer />
       <AppPalette />
+      {/* The status bar across the very bottom: the machine on the left, the harness on the
+          right (admin-only — it renders nothing until its first poll answers). The bar is a
+          fixed part of the Web App this round; a plugin-provided bar would follow later. */}
+      <StatusBar />
     </AppShell>
   );
 }
