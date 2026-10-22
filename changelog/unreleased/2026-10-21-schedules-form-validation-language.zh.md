@@ -3,6 +3,7 @@
 - **Date:** 2026-10-21
 - **Type:** fix
 - **Scope:** `web`, `server`
+- **PR:** [#1276](https://github.com/Prism-Shadow/penguin-harness/pull/1276)
 
 [English](2026-10-21-schedules-form-validation-language.md)
 
