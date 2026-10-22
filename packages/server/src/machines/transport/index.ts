@@ -41,5 +41,6 @@ export {
   listHostAliases,
   listHostEntries,
   readSshConfig,
+  sshConfigHomeCheck,
   writeSshConfig,
 } from "./targets.js";

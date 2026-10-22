@@ -70,6 +70,7 @@ import {
   onSessionChange,
   passwordSignIn,
   readSshConfig,
+  sshConfigHomeCheck,
   writeSshConfig,
 } from "./transport/index.js";
 import type {
@@ -3134,6 +3135,11 @@ export class MachinesModule {
   @Bind("MachinesModule.routes") routes!: Hono<AppEnv>;
   @Bind("MachinesModule.server-proxy") serverProxyRoutes!: Hono<AppEnv>;
   setup({ effect }: ClassCtx) {
+    // The machines feature reads and writes the ssh config OpenSSH itself reads; when HOME
+    // points somewhere other than the account's passwd home, one line at startup names the
+    // home ssh reads, so a deployment that set HOME deliberately sees which file that is.
+    const sshHomeNote = sshConfigHomeCheck();
+    if (sshHomeNote !== null) console.warn(`[machines] ${sshHomeNote}`);
     // This machine's own id is minted on the first boot of this data root and stable ever
     // after — every stored reference to this machine, here and on the machines it reaches,
     // points at it. A test that supplies its own service mints none.

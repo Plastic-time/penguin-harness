@@ -239,7 +239,7 @@ PUT 时，请求省略的字段保持原值，`null` 或 `""` 清除该字段，
 | POST | `/api/projects/:projectId/machines/:machineId/release` | 将那台机器移出本 Project；机器上的安装保持不变 |
 | POST | `/api/projects/:projectId/machines/:machineId/diagnose` | 检查有什么会妨碍安装或连接，不改动那台机器：`{machineId, checkedAt, checks: [{id, state, …}]}`；有任务在处理它时返回 `409` |
 
-无论个人服务器还是多用户服务器，这组路由都仅限管理员：安装会以服务器账号的密钥运行 ssh，并在另一台机器上写入程序目录——这是所有者才有的能力，不是访客该有的。服务器只在有人从页面上添加或配置主机时写入自己的 ssh 配置，也从不解析它。机器列表就是配置文件的原文，不管声明了多少台主机都只读取一次；每个别名都按原样传给 ssh，因此每次都由 ssh 套用自己的配置。
+无论个人服务器还是多用户服务器，这组路由都仅限管理员：安装会以服务器账号的密钥运行 ssh，并在另一台机器上写入程序目录——这是所有者才有的能力，不是访客该有的。服务器只在有人从页面上添加或配置主机时写入自己的 ssh 配置，也从不解析它。机器列表就是配置文件的原文，不管声明了多少台主机都只读取一次；每个别名都按原样传给 ssh，因此每次都由 ssh 套用自己的配置。这份配置就是 OpenSSH 自己读的那一份——按 passwd 数据库里服务器账号的家目录定位，而不是 `$HOME`（OpenSSH 读配置时不看环境变量）——因此页面列出的主机都是 ssh 能解析的主机；两个家目录不一致时，服务器启动时会说明自己读的是哪一个。
 
 - `POST …/install` 可以携带请求体 `{replaceProgram: true}`，用来回应任务过程中提出的这个要求：即使版本已经一致，服务器也会重新安装程序并重启它。
 - 主机可以用密码代替密钥登录。`POST …/ssh-hosts` 与 `PUT …/ssh-hosts/:alias` 接受 `password`：字符串即保存；`PUT` 时 `null` 删除已保存的密码，不带则保持不变。对手写的配置段，`PUT` 可以只设置密码，其余字段原样传回该段的内容。`GET …/ssh-hosts/:alias` 与机器列表在保存了密码时答 `passwordSaved: true`，从不返回密码本身。密码存放在 `<root>/machines/ssh-passwords/` 下权限为 0600 的文件里，不写进 ssh 配置、数据库或日志，只经 `SSH_ASKPASS` 出现在那一个 ssh 进程的环境变量里；这样的机器不提供密钥，每种方式只问一次。ssh 拒绝了的密码不再重试，直到为这台机器重新保存或删除密码：任务立即以 `sshReason: "password-rejected"` 失败（主机不接受密码时为 `"password-not-offered"`），保持连接的机器带上 `reconnect.waitsForPassword` 并停止重试。把机器从最后一个使用它的 Project 中删除时，它的密码一并删除。密码为空或不止一行时返回 `400` `ssh_password_invalid`；本机的 OpenSSH 无法接收密码时（Windows 上低于 8.4）返回 `409` `ssh_password_unsupported`，`details.ssh` 为 `ssh -V` 的输出。
