@@ -368,6 +368,15 @@ export interface MachinesEffects {
    * proxy's, created beside it, so this is an injected reader rather than a field here.
    */
   socketFact: (machineId: string) => MachineSocketFact | null;
+  /**
+   * Dials the machine's API socket again after the connection to it was replaced
+   * (machines/machine-sockets.ts): a fact that described the old session's socket must not
+   * read as current once the machine is back — the page would hold a stale failure beside a
+   * fresh check. A no-op unless this server holds the socket cache, which is the proxy's,
+   * injected the same way `socketFact` is; the dial itself is the cache's own business and
+   * never blocks the caller.
+   */
+  redialSocket: (machineId: string) => void;
 }
 
 /** The id of the entry standing for the machine this server runs on. */
@@ -494,6 +503,7 @@ export class MachinesService {
       passwordSignIn,
       lateSweepMs: 20_000,
       socketFact: () => null,
+      redialSocket: () => {},
       ...effects,
     };
     this.#passwords = new SshPasswords(path.join(dataRoot, "machines"));
@@ -1825,17 +1835,23 @@ export class MachinesService {
    * or running for it (the job decides how it ends), while its stored password is refused (a
    * try could lock the account; saving a password tries again), and for a machine not kept
    * connected (nothing to bring back — Start it).
+   *
+   * The machine may be named either way the product names it: by its ssh address
+   * (`ssh:<alias>`, the list's `id`, what the page's own Retry sends) or by its OWN id (the
+   * detail dialog's 机器 ID, the addressing the proxy's routes take). Both name one machine;
+   * only the address is a key below.
    */
   retryReconnect(address: string): RetryReconnectAnswer {
-    const machine = this.#allMachines().find((entry) => entry.id === address);
+    const id = this.#rowFor(address)?.address ?? address;
+    const machine = this.#allMachines().find((entry) => entry.id === id);
     if (machine === undefined || machine.local) return { ok: false, why: "unknown-machine" };
-    const job = this.#jobs.get(address);
+    const job = this.#jobs.get(id);
     if (job !== undefined && (job.queued || job.running)) return { ok: false, why: "busy" };
-    if (!this.#keepsConnected(address)) return { ok: false, why: "not-kept" };
-    const state = this.#reconnects.get(address);
+    if (!this.#keepsConnected(id)) return { ok: false, why: "not-kept" };
+    const state = this.#reconnects.get(id);
     if (state === undefined) {
-      if (this.#isUp(address)) return { ok: true, started: false };
-      this.#lost(address, 0);
+      if (this.#isUp(id)) return { ok: true, started: false };
+      this.#lost(id, 0);
     } else if (state.waitsForPassword === true) {
       return { ok: false, why: "password" };
     } else if (state.gaveUp !== undefined) {
@@ -1851,7 +1867,7 @@ export class MachinesService {
     } else {
       state.nextAt = this.#effects.now().getTime();
     }
-    this.#tryNow(address);
+    this.#tryNow(id);
     return { ok: true, started: true };
   }
 
@@ -1962,6 +1978,16 @@ export class MachinesService {
     // Connected, by whichever way it came — a job or the supervision's own attempt: a streak of
     // reconnecting that was under way is over.
     this.#settle(address);
+    // The connection this rode just replaced whatever was held before, and a socket dialled
+    // over the old one is gone with it — but the fact that described it stays, and the page
+    // would read a stale failure beside this fresh connect. Ask for one dial over the new
+    // session, only where a socket was ever dialled (a machine nobody has asked about is not
+    // measured now either), and never in this connect's way: the dial refreshes the fact on
+    // its own.
+    const machineId = this.repo.get(address)?.machineId ?? null;
+    if (machineId !== null && this.#effects.socketFact(machineId) !== null) {
+      this.#effects.redialSocket(machineId);
+    }
     this.#changed();
     return { ok: true, connected: true };
   }
@@ -3174,6 +3200,22 @@ export class MachinesModule {
         // An installed release installs the image its build shipped, unless it was pushed to.
         shippedImage: shippedImage(),
         socketFact: (machineId) => sockets.fact(machineId),
+        // The service knows WHEN a machine came back over a new session; the sockets are this
+        // generation's, so the dial itself is handed to the cache the fact lives in. Never
+        // awaited by the caller: a dial is the cache's own business, and its errors are its
+        // own fact to write.
+        redialSocket: (machineId) => {
+          void machines
+            .proxyTarget(machineId)
+            .then((target) => {
+              if (target === null) return;
+              void sockets.socketFor(machineId, target).then(
+                () => undefined,
+                () => undefined,
+              );
+            })
+            .catch(() => undefined);
+        },
         announce: () => toAdmins({ type: "machines_changed" }),
       },
       () => this.hmr.assetsDir(),

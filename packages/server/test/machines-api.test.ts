@@ -78,6 +78,7 @@ import zlib from "node:zlib";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { VERSION } from "@prismshadow/penguin-core";
 import type {
+  MachineSocketFact,
   MachinesUseResponse,
   MachinesResponse,
   ModelsUpdateRequest,
@@ -2912,6 +2913,74 @@ describe("machines API", () => {
       expect(await code(RECONNECT)).toBe(200);
       expect(far.probes).toBe(1);
       expect(nas()?.reconnect).toBeUndefined();
+    });
+
+    it("Retry reaches the machine by its OWN id too: an up one answers 200 starting nothing, a down one its streak, and an id naming nothing is still 404", async () => {
+      // The detail dialog's 机器 ID is what a person reading the page has in hand, and the
+      // proxy's routes take it; the c9g round found Retry taking only the ssh address and
+      // answering that connected machine with 404 unknown_machine.
+      const clock = { now: new Date("2026-08-24T12:00:00.000Z") };
+      const far = await host(() => clock.now);
+      far.said = null;
+      await t.deps.machines.autoConnect();
+      expect(nas()?.connection).not.toBeNull();
+      const probesBefore = far.probes;
+      // Up, named by its own id: the idempotent success, and the list with it.
+      const up = await admin.post("/api/projects/default_project/machines/NASmachineID0000/reconnect");
+      expect(up.status).toBe(200);
+      const answered = ((await up.json()) as MachinesResponse).machines.find(
+        (m) => m.id === "ssh:nas",
+      );
+      expect(answered?.connection).not.toBeNull();
+      expect(far.probes).toBe(probesBefore);
+      expect(nas()?.reconnect).toBeUndefined();
+      // Down, named by its own id: the streak the address form starts, and it comes back.
+      connected.delete("ssh:nas");
+      expect((await admin.post("/api/projects/default_project/machines/NASmachineID0000/reconnect")).status).toBe(200);
+      await waitFor(() => nas()?.connection !== null && nas()?.reconnect === undefined);
+      // An id naming no machine this server knows: the 404 is still the 404.
+      const unknown = await admin.post(
+        "/api/projects/default_project/machines/NoSUchMACHINEid0/reconnect",
+      );
+      expect(unknown.status).toBe(404);
+      expect(((await unknown.json()) as { error: { code: string } }).error.code).toBe(
+        "unknown_machine",
+      );
+    });
+
+    it("a machine that comes back over a new connection has its API socket dialled again", async () => {
+      // The socket fact the detail dialog reads describes a socket that rode the OLD session;
+      // without a re-dial it sat as `failed · 13 minutes ago` beside a machine that was back
+      // (the c9g round's finding) — until some stream happened to ask again.
+      let fact: MachineSocketFact | null = null;
+      const dialled: string[] = [];
+      let clock = new Date("2026-08-24T12:00:00.000Z");
+      await boot({
+        now: () => clock,
+        watchSessions: watch,
+        socketFact: (machineId) => (machineId === "NASmachineID0000" ? fact : null),
+        redialSocket: (machineId) => {
+          dialled.push(machineId);
+        },
+      });
+      kept();
+      await t.deps.machines.autoConnect();
+      expect(nas()?.connection).not.toBeNull();
+      // A machine no stream has ever asked about is not measured on its connect either.
+      expect(dialled).toEqual([]);
+
+      // A stream dialled the socket once; the connection then died under it.
+      fact = { state: "failed", since: clock.toISOString(), detail: "the socket closed" };
+      connected.delete("ssh:nas");
+      tell!("ssh:nas", false);
+      expect(nas()?.reconnect).not.toBeUndefined();
+
+      clock = new Date(clock.getTime() + 5_000);
+      await t.deps.machines.autoConnect();
+      expect(nas()?.connection).not.toBeNull();
+      expect(nas()?.reconnect).toBeUndefined();
+      // Back over a new connection: the socket is dialled again, by the machine's own id.
+      expect(dialled).toEqual(["NASmachineID0000"]);
     });
 
     it("a deleted machine is let go: no retries", async () => {

@@ -389,6 +389,9 @@ export function machinesRoutes(deps: MachinesRouteDeps): Hono<AppEnv> {
 
   // A person's Retry while the server brings a machine back: the next attempt now, or after the
   // streak stopped a new one from the first attempt. Not a job — the list says how it goes.
+  // Addressed by either name the product uses: the list's `id` (`ssh:<alias>`, what the page
+  // sends) or the machine's OWN id (the detail dialog's 机器 ID, the proxy's addressing) — a
+  // machine that is up answers 200 without starting anything.
   app.post("/:machineId/reconnect", (c) => {
     const answer = deps.machines.retryReconnect(c.req.param("machineId"));
     if (!answer.ok) {
