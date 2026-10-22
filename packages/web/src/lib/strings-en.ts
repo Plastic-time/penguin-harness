@@ -2569,6 +2569,15 @@ export const en: Strings = {
     endAt: "End at",
     period: "Period",
     periodPlaceholder: "30m / 12h / 7d; leave empty for a one-off task",
+    /**
+     * Field-level validation copy, and the localized text of the server's matching rejection
+     * codes at the same time — lib/api-error.ts reads the same keys, so the form's own words and
+     * the server's refusal are one sentence, whatever language the UI is in.
+     */
+    nameInvalid: "The name is the file name (without .toml): letters, digits, _ and - only.",
+    periodInvalid:
+      "The period is a number followed by m, h or d — 30m / 12h / 7d; leave it empty for a one-off task.",
+    windowInvalid: "The end time must be later than the start time.",
     target: "Target",
     targetNew: "New session each time",
     targetSession: "Bound Session",

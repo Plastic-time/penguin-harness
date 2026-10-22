@@ -84,6 +84,21 @@ describe("parseScheduleFile", () => {
     }
     expect(MIN_PERIOD_MS).toBe(5 * 60_000);
   });
+
+  it("carries a code on the two failures the schedule form can hit", () => {
+    // The web localizes by code (lib/api-error.ts): these two are the ones its own form
+    // mirrors, so a refusal that reaches the server still answers in the UI's language.
+    const badPeriod = parseScheduleFile("x", `${BASE}period = "10s"\n`);
+    expect(badPeriod.ok).toBe(false);
+    if (!badPeriod.ok) expect(badPeriod.code).toBe("schedule_invalid_period");
+    const badWindow = parseScheduleFile("x", `${BASE}end_at = "2026-07-16T08:00:00Z"\n`);
+    expect(badWindow.ok).toBe(false);
+    if (!badWindow.ok) expect(badWindow.code).toBe("schedule_invalid_window");
+    // A failure with no client-side field of its own carries no code: its sentence is the text.
+    const floor = parseScheduleFile("x", `${BASE}period = "4m"\n`);
+    expect(floor.ok).toBe(false);
+    if (!floor.ok) expect(floor.code).toBeUndefined();
+  });
 });
 
 describe("latestSlotAt / slotInWindow", () => {

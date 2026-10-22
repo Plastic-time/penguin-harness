@@ -11,6 +11,9 @@
  * - A created task closes the dialog without asking; its Enabled box is a field of the form,
  *   sent with Create.
  * - A refused create keeps the dialog open with the reason under the form, still unsaved.
+ * - The three values the store cannot take — a name it cannot file, a malformed period, an end
+ *   at or before the start — are said under their own field while they are typed, Create held,
+ *   and a server that refuses with the codes answers in the same sentences, in either language.
  * - Editing: Save is held while nothing differs from the task; flipping Enabled is a change that
  *   waits for Save (nothing is written on the click), and a prompt cleared is named as required.
  */
@@ -160,5 +163,92 @@ describe("the scheduled task form", () => {
     await type(inForm(en.schedule.prompt), "");
     expect(verb(en.common.save).disabled).toBe(true);
     expect(topDialog().textContent).toContain(en.common.requiredField);
+  });
+
+  it("says a name the store cannot file under the name field, and holds Create", async () => {
+    const { server, onSaved } = await openForm();
+    await type(inForm(en.common.name), "qa_bad/name");
+    expect(topDialog().textContent).toContain(en.schedule.nameInvalid);
+    await type(inForm(en.schedule.prompt), "Write the report.");
+    await type(inForm(en.schedule.startAt), "2026-10-11T09:00");
+    expect(verb(en.common.create).disabled).toBe(true);
+    expect(server.writes()).toEqual([]);
+    await type(inForm(en.common.name), "daily_report");
+    expect(topDialog().textContent).not.toContain(en.schedule.nameInvalid);
+    expect(verb(en.common.create).disabled).toBe(false);
+    await click(verb(en.common.create));
+    await waitFor(() => dialogs().length === 0);
+    expect(server.writes("/schedules")).toHaveLength(1);
+    expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it("says a malformed period under the period field, naming the shapes it takes", async () => {
+    const { server } = await openForm();
+    await fillRequired();
+    await type(inForm(en.schedule.period), "nonsense-period");
+    expect(topDialog().textContent).toContain(en.schedule.periodInvalid);
+    expect(topDialog().textContent).toMatch(/30m \/ 12h \/ 7d/);
+    expect(verb(en.common.create).disabled).toBe(true);
+    expect(server.writes()).toEqual([]);
+    await type(inForm(en.schedule.period), "30m");
+    expect(topDialog().textContent).not.toContain(en.schedule.periodInvalid);
+    await click(verb(en.common.create));
+    await waitFor(() => dialogs().length === 0);
+    expect(server.writes("/schedules")).toHaveLength(1);
+  });
+
+  it("says an end at or before the start under the end field, and a later one goes", async () => {
+    const { server } = await openForm();
+    await fillRequired();
+    await type(inForm(en.schedule.endAt), "2026-10-11T08:00");
+    expect(topDialog().textContent).toContain(en.schedule.windowInvalid);
+    expect(verb(en.common.create).disabled).toBe(true);
+    expect(server.writes()).toEqual([]);
+    await type(inForm(en.schedule.endAt), "2026-10-11T10:00");
+    expect(topDialog().textContent).not.toContain(en.schedule.windowInvalid);
+    await click(verb(en.common.create));
+    await waitFor(() => dialogs().length === 0);
+    expect(server.writes("/schedules")).toHaveLength(1);
+  });
+
+  it("answers a server that still refuses in the form's own words, not its English", async () => {
+    const { server, onSaved } = await openForm();
+    // A rule this form does not mirror — the server's 5-minute floor, say — still comes back
+    // localized: the code carries the sentence, the message is only the fallback.
+    server.refuseNext(
+      400,
+      "schedule_invalid_period",
+      "Invalid schedule configuration: period must look like 30m / 12h / 7d",
+    );
+    await fillRequired();
+    await click(verb(en.common.create));
+    await waitFor(() => topDialog().textContent?.includes(en.schedule.periodInvalid) === true);
+    expect(topDialog().textContent).not.toContain("Invalid schedule configuration");
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(hasUnsaved()).toBe(true);
+  });
+
+  it("says the same three sentences in the Chinese UI the defect was filed against", async () => {
+    // The mounted app carries its own LocaleProvider, which re-applies the language on every
+    // mount from the stored preference — that store is the lever, not a bare setActiveStrings.
+    localStorage.setItem("penguin.lang", "zh");
+    try {
+      const { server } = await openForm();
+      await type(inForm(zh.common.name), "qa_c7_bad/name");
+      await type(inForm(zh.schedule.prompt), "写日报。");
+      await type(inForm(zh.schedule.startAt), "2026-10-11T09:00");
+      await type(inForm(zh.schedule.period), "nonsense-period");
+      await type(inForm(zh.schedule.endAt), "2026-10-11T08:00");
+      expect(topDialog().textContent).toContain(zh.schedule.nameInvalid);
+      expect(topDialog().textContent).toContain(zh.schedule.periodInvalid);
+      expect(topDialog().textContent).toContain(zh.schedule.windowInvalid);
+      // The defect's English never reaches the Chinese dialog.
+      expect(topDialog().textContent).not.toContain("Invalid schedule");
+      expect(verb(zh.common.create).disabled).toBe(true);
+      expect(server.writes()).toEqual([]);
+    } finally {
+      localStorage.setItem("penguin.lang", "en");
+      setActiveStrings(en);
+    }
   });
 });

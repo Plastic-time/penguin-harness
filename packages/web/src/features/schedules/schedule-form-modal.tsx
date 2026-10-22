@@ -18,6 +18,12 @@
  * closing it with unsaved edits (Cancel, Esc, the ×, a press outside) asks first. A required
  * field's error shows once it differs from what the dialog opened with (an untouched one has its
  * asterisk). A rejection from the server lands under the form, and the dialog stays open.
+ *
+ * The three values the store itself would refuse — a name it cannot file, a malformed period,
+ * an end at or before the start — are said under their own field while they are typed
+ * (schedule-form-validation.ts, mirroring the server's rules), and Save / Create waits while one
+ * of them is wrong; what still slips through is refused by the server, whose rejection codes
+ * carry the same sentences (lib/api-error.ts).
  */
 import { useEffect, useState } from "react";
 import type {
@@ -50,6 +56,7 @@ import { useAgentLocation } from "../../lib/agent-location";
 import { ModelCatalogSelect } from "../chat/model-select";
 import { WorkspaceSelect } from "../chat/workspace-select";
 import { sameModelRef } from "../models/model-grouping";
+import { invalidScheduleFields, type InvalidScheduleField } from "./schedule-form-validation";
 import { itemModelRef } from "./schedule-upsert";
 
 /** ISO → datetime-local input value (local timezone, minute precision); returns "" when missing/invalid. */
@@ -305,6 +312,17 @@ function ScheduleFormDialog({
     missing.has(field) && form[field] !== draft.baseline[field]
       ? S.common.requiredField
       : undefined;
+  /** The values the server would refuse, caught before it has to (schedule-form-validation.ts). */
+  const invalid = invalidScheduleFields(form);
+  /** A refusal the form can see coming, said under the field while the value is typed. */
+  const validityError = (field: InvalidScheduleField): string | undefined =>
+    !invalid.has(field)
+      ? undefined
+      : field === "name"
+        ? S.schedule.nameInvalid
+        : field === "period"
+          ? S.schedule.periodInvalid
+          : S.schedule.windowInvalid;
 
   useEffect(() => {
     if (!projectId) return;
@@ -333,7 +351,7 @@ function ScheduleFormDialog({
   };
 
   const submit = async () => {
-    if (!projectId || !draft.dirty || missing.size > 0 || busy) return;
+    if (!projectId || !draft.dirty || missing.size > 0 || invalid.size > 0 || busy) return;
     setFormError(null);
     const name = form.editing ?? form.name.trim();
     // Empty-string keys are always omitted; target is one of two choices — sessionId is
@@ -391,7 +409,7 @@ function ScheduleFormDialog({
           <Button
             size="sm"
             variant="primary"
-            disabled={!draft.dirty || missing.size > 0 || busy}
+            disabled={!draft.dirty || missing.size > 0 || invalid.size > 0 || busy}
             onClick={() => void submit()}
           >
             {form.editing !== null ? S.common.save : S.common.create}
@@ -406,7 +424,7 @@ function ScheduleFormDialog({
             label={S.common.name}
             required
             hint={S.schedule.nameHint}
-            error={requiredError("name")}
+            error={requiredError("name") ?? validityError("name")}
             value={form.name}
             disabled={form.editing !== null}
             onChange={(e) => set({ name: e.target.value })}
@@ -417,6 +435,7 @@ function ScheduleFormDialog({
           <Input
             size="sm"
             label={S.schedule.period}
+            error={validityError("period")}
             value={form.period}
             onChange={(e) => set({ period: e.target.value })}
             className="font-mono"
@@ -437,6 +456,7 @@ function ScheduleFormDialog({
             size="sm"
             label={S.schedule.endAt}
             type="datetime-local"
+            error={validityError("endAt")}
             value={form.endAt}
             onChange={(e) => set({ endAt: e.target.value })}
             className="font-mono"

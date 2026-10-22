@@ -4,6 +4,7 @@
  * a code missing from the table falls through to the raw English message.
  *
  * - The three "cannot compact" refusals stay three distinct explanations, in both languages.
+ * - The schedule form's three rejections come back as the field's own sentences, both locales.
  * - The Chinese UI shows Chinese text for the errors an ordinary session can surface.
  * - A code nobody mapped still falls back to the server's message; a non-ApiError reads as the
  *   generic failure.
@@ -57,6 +58,24 @@ describe("apiErrorText", () => {
       const texts = codes.map((c) => apiErrorText(serverError(c)));
       for (const t of texts) expect(t).not.toBe("RAW ENGLISH SERVER MESSAGE");
       expect(new Set(texts).size).toBe(codes.length);
+    }
+  });
+
+  it("localizes the schedule form's rejections in both locales, examples and all", () => {
+    const codes = ["schedule_invalid_name", "schedule_invalid_period", "schedule_invalid_window"];
+    for (const dict of [ZH, EN]) {
+      setActiveStrings(dict);
+      const texts = codes.map((c) => apiErrorText(serverError(c)));
+      // Mapped, so the raw server message never reaches the user.
+      for (const t of texts) expect(t).not.toBe("RAW ENGLISH SERVER MESSAGE");
+      // Three rejections, three sentences — the very ones the form's fields say.
+      expect(texts).toEqual([
+        S.schedule.nameInvalid,
+        S.schedule.periodInvalid,
+        S.schedule.windowInvalid,
+      ]);
+      // The period's sentence names the shape it wants, the way the field under it does.
+      expect(apiErrorText(serverError("schedule_invalid_period"))).toMatch(/30m \/ 12h \/ 7d/);
     }
   });
 

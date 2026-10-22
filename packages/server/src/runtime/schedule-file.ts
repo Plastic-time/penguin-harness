@@ -47,8 +47,14 @@ export interface ScheduleDefinition {
   provider?: string;
 }
 
+/**
+ * A failure an HTTP client can act on beside its own checks carries a machine-readable `code`
+ * next to the human sentence: the web localizes by code (lib/api-error.ts), and the sentence —
+ * English, like every server message — is only the fallback. Failures with no field of their
+ * own in the client (the ones a hand-edited file surfaces as `invalidFiles`) stay codeless.
+ */
 export type ScheduleParseResult =
-  { ok: true; def: ScheduleDefinition } | { ok: false; error: string };
+  { ok: true; def: ScheduleDefinition } | { ok: false; error: string; code?: string };
 
 /** Parse a fixed interval in `30m` / `12h` / `7d` form; returns null if invalid. */
 export function parsePeriod(raw: string): number | null {
@@ -106,7 +112,12 @@ export function parseScheduleFile(name: string, raw: string): ScheduleParseResul
   if (t["period"] !== undefined) {
     if (typeof t["period"] !== "string") return { ok: false, error: "period must be a string" };
     const ms = parsePeriod(t["period"]);
-    if (ms === null) return { ok: false, error: "period must look like 30m / 12h / 7d" };
+    if (ms === null)
+      return {
+        ok: false,
+        error: "period must look like 30m / 12h / 7d",
+        code: "schedule_invalid_period",
+      };
     if (ms < MIN_PERIOD_MS) return { ok: false, error: "period is below the 5m minimum" };
     period = t["period"].trim();
     periodMs = ms;
@@ -117,7 +128,11 @@ export function parseScheduleFile(name: string, raw: string): ScheduleParseResul
     const parsedEnd = parseInstant(t["end_at"]);
     if (parsedEnd === null) return { ok: false, error: "end_at is not a valid ISO 8601 instant" };
     if (parsedEnd.ms <= startAt.ms)
-      return { ok: false, error: "end_at must be later than start_at" };
+      return {
+        ok: false,
+        error: "end_at must be later than start_at",
+        code: "schedule_invalid_window",
+      };
     endAt = parsedEnd;
   }
 

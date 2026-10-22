@@ -2752,6 +2752,14 @@ export const zh = {
     endAt: "结束时间",
     period: "周期",
     periodPlaceholder: "30m / 12h / 7d，留空为一次性",
+    /**
+     * Field-level validation copy, and the localized text of the server's matching rejection
+     * codes at the same time — lib/api-error.ts reads the same keys, so the form's own words and
+     * the server's refusal are one sentence, whatever language the UI is in.
+     */
+    nameInvalid: "名称即文件名（不含 .toml），只能用字母、数字、下划线 _ 和连字符 -。",
+    periodInvalid: "周期的格式应为数字＋m/h/d，如 30m / 12h / 7d；留空表示一次性任务。",
+    windowInvalid: "结束时间需晚于开始时间。",
     target: "目标",
     targetNew: "每次新建会话",
     targetSession: "绑定 Session",

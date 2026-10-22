@@ -141,7 +141,9 @@ function toItem(
 
 /** Schedule name in the path: same character rules as directories/files, validated before any path construction. */
 function requireScheduleName(raw: string | undefined): string {
-  if (!raw || !isValidId(raw)) throw badRequest("Invalid schedule name.");
+  // The code lets the web say it in the UI's language (the message is the English fallback).
+  if (!raw || !isValidId(raw))
+    throw new HttpError(400, "schedule_invalid_name", "Invalid schedule name.");
   return raw;
 }
 
@@ -268,7 +270,14 @@ async function upsert(
   const fields = parseUpsertBody(body);
   const raw = serializeSchedule(fields);
   const parsed = parseScheduleFile(name, raw);
-  if (!parsed.ok) throw badRequest(`Invalid schedule configuration: ${parsed.error}`);
+  // A failure with a code is one the web can name in its own language (lib/api-error.ts maps
+  // it); the rest stay `bad_request`, their sentence the only text.
+  if (!parsed.ok)
+    throw new HttpError(
+      400,
+      parsed.code ?? "bad_request",
+      `Invalid schedule configuration: ${parsed.error}`,
+    );
   // A one-shot in the past would fire at once (not offered); a past end_at could never fire.
   const nowMs = Date.now();
   if (parsed.def.periodMs === undefined && parsed.def.startAtMs <= nowMs) {
