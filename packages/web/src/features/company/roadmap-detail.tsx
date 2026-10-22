@@ -45,6 +45,7 @@ import { ChannelMessageBody } from "./channel-markdown";
 import { orgProposalPath } from "./company-nav";
 import { ErrorLine, PrincipalChip, TitleButton } from "./shared";
 import { roadmapRows } from "./roadmaps";
+import { roadmapsBackoff, roadmapsKey } from "./roadmaps-backoff";
 import { SubjectActivity } from "../proposals/activity-view";
 import type { RoadmapRow, RoadmapRowStage } from "./roadmaps";
 
@@ -81,16 +82,19 @@ export function RoadmapDetail({
   /** The last answer as read, so an unchanged answer does not replace the state. */
   const drawn = useRef("");
 
-  const load = useCallback(async () => {
+  /** Reads the roadmap again; false when the read failed, so the poll can back off. */
+  const load = useCallback(async (): Promise<boolean> => {
     try {
       const next = await api.getOrgRoadmap(projectId, orgId, number);
       const json = JSON.stringify(next);
       setError(null);
-      if (json === drawn.current) return;
+      if (json === drawn.current) return true;
       drawn.current = json;
       setRoadmap(next);
+      return true;
     } catch (e) {
       setError(apiErrorText(e));
+      return false;
     }
   }, [projectId, orgId, number]);
 
@@ -101,11 +105,31 @@ export function RoadmapDetail({
     // The next read is timed from the end of the last one, never from its start: on a slow link
     // to the organization's machine a fixed interval stacked reads of the whole roadmap behind
     // one another, each slower than the last, and everything else on that link waited behind them.
+    // A read that FAILED waits the organization's roadmaps backoff instead (roadmaps-backoff.ts):
+    // a dead link is asked a handful of times a minute, not on every fixed tick, and the read
+    // that answers opens the gate for every other surface of the same organization.
+    const gate = roadmapsKey(projectId, orgId);
     let live = true;
     let timer: number | undefined;
     const poll = async () => {
-      await load();
-      if (live) timer = window.setTimeout(() => void poll(), DETAIL_POLL_MS);
+      if (!roadmapsBackoff.mayStart(gate)) {
+        // The gate is held by another surface's failure: run when it opens, on its clock, so
+        // this poll's cycle neither dies nor asks early.
+        roadmapsBackoff.defer(gate, () => {
+          if (live) void poll();
+        });
+        return;
+      }
+      const ok = await load();
+      if (!live) return;
+      if (ok) {
+        roadmapsBackoff.answered(gate);
+        timer = window.setTimeout(() => void poll(), DETAIL_POLL_MS);
+      } else {
+        roadmapsBackoff.failed(gate, () => {
+          if (live) void poll();
+        });
+      }
     };
     void poll();
     return () => {

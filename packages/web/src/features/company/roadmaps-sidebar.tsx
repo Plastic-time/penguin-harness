@@ -19,7 +19,7 @@
  * A row's context menu (right-click, press-and-hold, Shift+F10) copies the roadmap's ID — its
  * number, as `#n` — so the number stays off the row and is still at hand when it is wanted.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import {
   Dropdown,
@@ -46,6 +46,7 @@ import { useAuth } from "../../state/auth";
 import { useCompany, useCompanyEvents } from "../../state/company";
 import { badgeNote, RowBadges, type RowCounts } from "./channel-sidebar";
 import { orgChannelPath, orgContributedPagePath } from "./company-nav";
+import { roadmapsBackoff, roadmapsKey } from "./roadmaps-backoff";
 import {
   isListedRoadmap,
   roadmapsPageSrc,
@@ -199,36 +200,54 @@ export function RoadmapsSidebar({
     setRooms({});
   }, [projectId, orgId]);
 
+  // The list is read when the organization changes and again on every navigation — but never
+  // against the wait a failed read is holding (roadmaps-backoff.ts): one dead link to the
+  // organization's machine is what turned a navigation into 5,160 requests, so a failure is
+  // retried on the backoff's own clock, and the navigation that lands inside the wait shows
+  // what the last answer left. `readRef` keeps the retry pointing at the newest live read.
+  const readRef = useRef<() => void>(() => {});
   useEffect(() => {
     if (!enabled) return;
+    const gate = roadmapsKey(projectId, orgId);
     let live = true;
-    api
-      .listOrgRoadmaps(projectId, orgId)
-      .then((res) => {
-        if (!live) return;
-        setRoadmaps(res.roadmaps);
-        setFailed(false);
-        // Rooms are unlisted channels, so the channel listing carries neither their last message
-        // nor their counters; each room is read on its own. A room that cannot be read keeps
-        // its ledger order and shows no badge.
-        for (const r of res.roadmaps) {
-          if (!isListedRoadmap(r)) continue;
-          const startedAt = Date.now();
-          api
-            .getOrgChannel(projectId, orgId, r.channelId)
-            .then((ch) => {
-              if (!live) return;
-              setRooms((prev) => ({
-                ...prev,
-                [r.channelId]: roomFromRead(prev[r.channelId], ch, startedAt),
-              }));
-            })
-            .catch(() => {});
-        }
-      })
-      .catch(() => {
-        if (live) setFailed(true);
-      });
+    const read = () => {
+      // A surface that unmounted while the gate was shut leaves its retry behind in the
+      // backoff's waiting set; running it must not send a read for a surface nobody is
+      // looking at. Without this, one open of the gate fired one read per navigation the
+      // window caused — a burst, not a backoff.
+      if (!live) return;
+      api
+        .listOrgRoadmaps(projectId, orgId)
+        .then((res) => {
+          if (!live) return;
+          roadmapsBackoff.answered(gate);
+          setRoadmaps(res.roadmaps);
+          setFailed(false);
+          // Rooms are unlisted channels, so the channel listing carries neither their last message
+          // nor their counters; each room is read on its own. A room that cannot be read keeps
+          // its ledger order and shows no badge.
+          for (const r of res.roadmaps) {
+            if (!isListedRoadmap(r)) continue;
+            const startedAt = Date.now();
+            api
+              .getOrgChannel(projectId, orgId, r.channelId)
+              .then((ch) => {
+                if (!live) return;
+                setRooms((prev) => ({
+                  ...prev,
+                  [r.channelId]: roomFromRead(prev[r.channelId], ch, startedAt),
+                }));
+              })
+              .catch(() => {});
+          }
+        })
+        .catch(() => {
+          roadmapsBackoff.failed(gate, () => readRef.current());
+          if (live) setFailed(true);
+        });
+    };
+    readRef.current = read;
+    if (roadmapsBackoff.mayStart(gate)) read();
     return () => {
       live = false;
     };

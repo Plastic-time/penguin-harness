@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import * as api from "../../api/endpoints";
 import { roadmapRows } from "../company/roadmaps";
+import { roadmapsBackoff, roadmapsKey } from "../company/roadmaps-backoff";
 import type { RoadmapRef } from "./pr-graph-segments";
 
 export function useProposalRoadmaps(
@@ -19,9 +20,24 @@ export function useProposalRoadmaps(
   const [byProposal, setByProposal] = useState<ReadonlyMap<number, RoadmapRef[]>>(new Map());
   useEffect(() => {
     let alive = true;
-    void (async () => {
+    // The graph's own reload brings `round` around again; whether this roadmap read may start
+    // is the organization's shared roadmaps backoff's to say (roadmaps-backoff.ts) — a dead
+    // link to the organization's machine names no proposals' roadmaps, and is not re-asked on
+    // every reload while it is down. The failure's own retry fills the map when it returns.
+    const gate = roadmapsKey(projectId, orgId);
+    const read = async () => {
+      // A surface that unmounted while the gate was shut leaves its retry behind in the
+      // backoff's waiting set; running it must not send a read for a surface nobody is
+      // looking at — one open of the gate, one read, not one per reload.
+      if (!alive) return;
       const list = await api.listOrgRoadmaps(projectId, orgId).catch(() => null);
-      if (list === null) return;
+      if (list === null) {
+        roadmapsBackoff.failed(gate, () => {
+          if (alive) void read();
+        });
+        return;
+      }
+      roadmapsBackoff.answered(gate);
       const details = await Promise.all(
         list.roadmaps.map((r) => api.getOrgRoadmap(projectId, orgId, r.number).catch(() => null)),
       );
@@ -37,7 +53,12 @@ export function useProposalRoadmaps(
         }
       }
       if (alive) setByProposal(map);
-    })();
+    };
+    if (roadmapsBackoff.mayStart(gate)) void read();
+    else
+      roadmapsBackoff.defer(gate, () => {
+        if (alive) void read();
+      });
     return () => {
       alive = false;
     };

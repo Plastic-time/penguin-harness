@@ -6,13 +6,14 @@
  * side by side; on a narrow one the stream keeps the screen and a "Roadmap" bar under the header
  * swaps the column in, with "Back to the room" to swap back.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GlyphIcon, ICON_GAP, ICON_SIZE } from "@prismshadow/penguin-ui";
 import * as api from "../../api/endpoints";
 import { S } from "../../lib/strings";
 import { NAV_ICONS } from "../../lib/nav-icons";
 import { useOrgPages } from "./use-org-pages";
 import { RoadmapDetail } from "./roadmap-detail";
+import { roadmapsBackoff, roadmapsKey } from "./roadmaps-backoff";
 import { roadmapsPageSrc } from "./roadmaps";
 
 /** The roadmap whose room this channel is; null for any other channel (or while the plugin is not there). */
@@ -25,19 +26,36 @@ export function useChannelRoadmap(
   const enabled = roadmapsPageSrc(pages) !== null;
   const [found, setFound] = useState<{ key: string; number: number; name: string } | null>(null);
   const key = `${projectId}/${orgId}/${channelId}`;
+  // The lookup rides the same backoff as every roadmaps read of this organization
+  // (roadmaps-backoff.ts): a channel page opened against a dead link to the organization's
+  // machine asks once, not once per mount, and the failure's own retry is what finds the
+  // roadmap when the link returns.
+  const readRef = useRef<() => void>(() => {});
   useEffect(() => {
     setFound(null);
     if (!enabled) return;
+    const gate = roadmapsKey(projectId, orgId);
     let live = true;
-    api
-      .listOrgRoadmaps(projectId, orgId, { channel: channelId })
-      .then((res) => {
-        const r = res.roadmaps.at(-1);
-        if (live && r !== undefined) setFound({ key, number: r.number, name: r.name });
-      })
-      .catch(() => {
-        // Not a roadmap's room as far as this page can tell: the channel shows alone.
-      });
+    const read = () => {
+      // A surface that unmounted while the gate was shut leaves its retry behind in the
+      // backoff's waiting set; running it must not send a read for a surface nobody is
+      // looking at — one open of the gate, one read per surface, not one per navigation.
+      if (!live) return;
+      api
+        .listOrgRoadmaps(projectId, orgId, { channel: channelId })
+        .then((res) => {
+          roadmapsBackoff.answered(gate);
+          const r = res.roadmaps.at(-1);
+          if (live && r !== undefined) setFound({ key, number: r.number, name: r.name });
+        })
+        .catch(() => {
+          // Not a roadmap's room as far as this page can tell — but a read that failed on the
+          // organization's link is retried on the backoff's clock before that is believed.
+          roadmapsBackoff.failed(gate, () => readRef.current());
+        });
+    };
+    readRef.current = read;
+    if (roadmapsBackoff.mayStart(gate)) read();
     return () => {
       live = false;
     };
