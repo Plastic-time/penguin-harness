@@ -37,6 +37,7 @@ import {
   heldSessionOf,
   sessionOf,
 } from "../src/machines/transport/index.js";
+import { signInFor } from "../src/machines/transport/login.js";
 import { SshPasswords } from "../src/machines/ssh-passwords.js";
 
 // The stub `ssh` below is a shell script, which execFile cannot run on Windows; what stays
@@ -196,9 +197,12 @@ exit 1
     // after a close are advanced to, not waited out. The child processes stay real, so what
     // they do is waited for by turning the event loop, never by a timer.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const until = async (condition: () => boolean, what: string): Promise<void> => {
+    const until = async (
+      condition: () => boolean | Promise<boolean>,
+      what: string,
+    ): Promise<void> => {
       const deadline = Date.now() + 5_000;
-      while (!condition()) {
+      while (!(await condition())) {
         if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
         await new Promise((resolve) => setImmediate(resolve));
       }
@@ -365,9 +369,12 @@ exec /bin/sh
 
   it("signs in through the helper, and a refused password waits for a new save, held or not", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const until = async (condition: () => boolean, what: string): Promise<void> => {
+    const until = async (
+      condition: () => boolean | Promise<boolean>,
+      what: string,
+    ): Promise<void> => {
       const deadline = Date.now() + 5_000;
-      while (!condition()) {
+      while (!(await condition())) {
         if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
         await new Promise((resolve) => setImmediate(resolve));
       }
@@ -396,7 +403,11 @@ exec /bin/sh
       await until(() => sessionOf("ssh:nas") === null, "the session to drop");
       await vi.advanceTimersByTimeAsync(1_000);
       await until(() => spawns().length === 2, "the reopen");
-      await until(() => sessionOf("ssh:nas") === null, "the refusal");
+      // The reopened child reads as down its whole authentication — up needs a completed
+      // command — so "the session reads null" no longer says the refusal has been read.
+      // Ask the gate an open itself asks: signInFor turns the alias away only once
+      // login.ts has remembered the refused password.
+      await until(async () => !(await signInFor(target)).ok, "the refusal to be remembered");
       // Refused once: no reopen however long it waits, and no command dials with it either.
       await vi.advanceTimersByTimeAsync(10 * 60_000);
       const again = await conn.exec("echo in");

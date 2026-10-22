@@ -1330,6 +1330,20 @@ export const zh = {
   },
 
   /**
+   * The page's one API socket (api/socket.ts), as the layout's quiet indicator says it — the
+   * two states that must not pass in silence: a reconnect being tried, and the give-up that
+   * ends the page's live updates until it is reloaded.
+   */
+  connection: {
+    /** While a dropped socket is being brought back on the backoff. */
+    reconnecting: "连接已断开，正在重连…",
+    /** After the page gave the socket up: streams stay silent, calls still work over HTTP. */
+    gaveUp: "实时更新已断开",
+    /** The gave-up line's one action: the reload is the only way back. */
+    reload: "重新加载",
+  },
+
+  /**
    * The four DISMISSIBLE badge trails (Agents / Skill library / model library / cost center),
    * the controls that clear them and the control that acts on all of one at once. The tooltip
    * sentences below are what each dot says; the page notice restates the same count in its own

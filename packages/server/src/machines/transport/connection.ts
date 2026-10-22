@@ -34,6 +34,7 @@ import http from "node:http";
 import type net from "node:net";
 import { run, runWithInput } from "./exec.js";
 import {
+  awaitHeldUp,
   closeAllShells,
   closeShell,
   holdShell,
@@ -43,7 +44,7 @@ import {
   sessionOf,
 } from "./ssh-session.js";
 import type { ShellSession } from "./ssh-session.js";
-import { dialThroughSocks } from "./socks.js";
+import { dialThroughSocks, SocksPortUnreachable } from "./socks.js";
 import { inLane } from "./lane.js";
 import { noteSignIn, signInFor } from "./login.js";
 import { scpArgs, sshArgs } from "../commands.js";
@@ -66,6 +67,14 @@ export interface MachineChannel {
 
 /** Enough for an installer to download a release, or a store to cross a slow link. */
 const BULK_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * How long a dial waits for the held session's own reconnect before failing. Chosen to sit
+ * inside machine-sockets' 10 s dial timeout: the wait that lapses there still leaves the
+ * socket dial its own budget to fail within. The wait never lengthens however many dials
+ * are waiting — they all settle on the same one reconnect.
+ */
+const DIAL_WAIT_MS = 8_000;
 
 export class MachineConnection implements MachineChannel {
   readonly address: string;
@@ -116,11 +125,37 @@ export class MachineConnection implements MachineChannel {
     return sessionOf(this.address);
   }
 
-  /** A TCP connection to `127.0.0.1:<remotePort>` as seen from the machine — a channel in the session. */
+  /**
+   * A TCP connection to `127.0.0.1:<remotePort>` as seen from the machine — a channel in the
+   * HELD session, never a session of its own. A dial that arrives while the held session is
+   * down waits for the transport's own reconnect (awaitHeldUp, ssh-session.ts): every dial
+   * inside one reconnect window merges into that one reconnect, so a page's worth of
+   * requests never opens a second ssh — the shape this dial used to have, opening a
+   * transient session per request on its own schedule beside the held one's.
+   *
+   * Bounded twice over: the wait is DIAL_WAIT_MS, and a SOCKS dial that meets a dead
+   * listener (the child died between the session check and the connect) rides ONE
+   * reconnect — waiting for a session that is not the dead child — and is tried once more
+   * before the failure is the caller's.
+   */
   async dial(remotePort: number): Promise<net.Socket> {
-    const opened = await this.open();
-    if (!opened.ok) throw new Error(opened.detail);
-    return dialThroughSocks(opened.session.socksPort, "127.0.0.1", remotePort);
+    const session = await awaitHeldUp(this.address, DIAL_WAIT_MS);
+    if (session === null) {
+      throw new Error(
+        `no live session to ${this.target.alias}: none is held, or its reconnect did not come back in ${DIAL_WAIT_MS} ms`,
+      );
+    }
+    try {
+      return await dialThroughSocks(session.socksPort, "127.0.0.1", remotePort);
+    } catch (err) {
+      if (!(err instanceof SocksPortUnreachable)) throw err;
+      console.log(
+        `[machines] dial to ${this.target.alias}: the session's SOCKS port did not answer; riding its reconnect to dial once more`,
+      );
+      const again = await awaitHeldUp(this.address, DIAL_WAIT_MS, session.pid);
+      if (again === null) throw err;
+      return dialThroughSocks(again.socksPort, "127.0.0.1", remotePort);
+    }
   }
 
   /** An http.Agent whose every socket is a dial through the session — for node:http callers. */

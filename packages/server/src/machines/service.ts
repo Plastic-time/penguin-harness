@@ -58,6 +58,7 @@ import { SESSION_COOKIE } from "../auth/middleware.js";
 import http from "node:http";
 import {
   appendHostBlock,
+  awaitHeldUp,
   closeAllConnections,
   SESSION_GROUP,
   attachSessionRegistry,
@@ -230,6 +231,14 @@ const UNRECOVERABLE_SSH: ReadonlySet<MachineSshFailure> = new Set<MachineSshFail
 ]);
 /** After this many failed attempts in a row, the connection check runs on its own. */
 const DIAGNOSE_AFTER = 3;
+/**
+ * How long a proxied request waits for the machine it addresses to come back on its own —
+ * the reconnect a dropped held session is already on (transport/ssh-session.ts), which every
+ * waiting request joins rather than each failing alone. A blip is survived whole; a machine
+ * that is really down answers within this with the honest "not connected", and the page
+ * shows its reconnecting streak beside it.
+ */
+const PROXY_TARGET_WAIT_MS = 10_000;
 /** `machines_changed` goes out at most this often: a burst of log lines is one event per window. */
 const ANNOUNCE_MS = 200;
 /**
@@ -1011,12 +1020,15 @@ export class MachinesService {
    * What the proxy needs to forward a request to a machine addressed by its OWN id: a dial
    * through the connection, the port its server is on over there, a session there, and when
    * this server adopted it (sent along, so that machine reads the Sessions it held before then
-   * as CLI tasks). Null when the machine is not connected.
+   * as CLI tasks). Null when the machine is not connected. A request that arrives while the
+   * machine's held session is reconnecting waits for it (PROXY_TARGET_WAIT_MS): a blip costs
+   * the request a moment instead of an error, and every request of that window merges into the
+   * one reconnect.
    */
   async proxyTarget(machineId: string): Promise<ProxyTarget | null> {
     const row = this.#rowFor(machineId);
     if (row === null) return null;
-    const dial = await this.#dial(row.address);
+    const dial = await this.#dial(row.address, { waitMs: PROXY_TARGET_WAIT_MS });
     return dial === null ? null : { ...dial, adoptedAt: row.adoptedAt };
   }
 
@@ -1024,11 +1036,26 @@ export class MachinesService {
    * A dial to a machine's server by its address: through the connection held to it, to the port
    * its server was last bound to, with a session there. Null when it is not connected — or when
    * no session can be had, which leaves nothing to call it with either.
+   *
+   * `waitMs` waits for a held session that is down to come back on the transport's own
+   * reconnect, which every waiting caller merges into: passed by the proxy path, where a
+   * moment's wait recovers the request whole. Not waited when the bring-back streak has
+   * stopped (a person's Retry starts another) or is waiting for a saved password — the
+   * honest answer is a fast null, and the page shows why. A listing (projectApis) does not
+   * wait: it reads every machine, and would hold its page hostage to the slowest one.
    */
-  async #dial(address: string): Promise<(RelayDial & { session: number }) | null> {
+  async #dial(
+    address: string,
+    opts: { waitMs?: number } = {},
+  ): Promise<(RelayDial & { session: number }) | null> {
     const row = this.repo.get(address);
-    const live = this.#liveSession(address);
-    if (row === null || row.remotePort === null || live === null) return null;
+    if (row === null || row.remotePort === null) return null;
+    let live = this.#liveSession(address);
+    if (live === null) {
+      const waitMs = opts.waitMs ?? 0;
+      if (waitMs > 0 && this.#bringingBack(address)) live = await awaitHeldUp(address, waitMs);
+    }
+    if (live === null) return null;
     const target = this.#targetOf(address.slice("ssh:".length));
     const session = await this.#sessionOn(target);
     if (!("cookie" in session)) return null;
@@ -1039,6 +1066,18 @@ export class MachinesService {
       // The socket relay reuses a socket only within one ssh session (socket-relay.ts).
       session: live.pid,
     };
+  }
+
+  /**
+   * Whether a held session that is down is on its way back — worth a dial's wait. False when
+   * nothing is held, when this server never noticed a loss, and when the bring-back streak has
+   * stopped or is waiting for a saved password: those are answered at once, and the machine's
+   * row on the page says which it is.
+   */
+  #bringingBack(address: string): boolean {
+    const state = this.#reconnects.get(address);
+    if (state === undefined) return false;
+    return state.gaveUp === undefined && state.waitsForPassword !== true;
   }
 
   /**

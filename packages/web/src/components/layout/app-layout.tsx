@@ -44,6 +44,7 @@ import { ChannelRailRows, DefaultChannelRailRow } from "../../features/company/c
 import { DeskRailRows, TempSessionRailRows } from "../../features/company/org-session-groups";
 import { COMPANY_NAV_KEYS, orgPagePath, parseOrgKey } from "../../features/company/company-nav";
 import { NEW_CHAT_ICON, Sidebar } from "./sidebar";
+import { SocketHealthIndicator, useSocketHealth } from "./socket-health-indicator";
 import { FindBar } from "../find/find-bar";
 import { UserMenu } from "./user-menu";
 import { isCurrentPath, renderRouterLink } from "./router-link";
@@ -413,6 +414,10 @@ export function AppLayout() {
   }, [collapsed, inCompany, newChat]);
 
   const background = useBackground();
+  // The page's own connection said quietly (components/layout/socket-health-indicator.tsx):
+  // one floating pill while the API socket is coming back, or has been given up. Read here,
+  // in the layout, because the socket is the page's — no route owns it.
+  const socketHealth = useSocketHealth();
   return (
     <AppShell
       background={
@@ -494,7 +499,12 @@ export function AppLayout() {
         </Notice>
       )}
 
-      <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
+      <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+        {/* The socket's quiet indicator floats over the page's top edge — over, not above:
+            a connection that mends itself must not shift a single line of the page it
+            interrupts, and a page that has given up must still be fully usable under its
+            one sentence. */}
+        <SocketHealthIndicator health={socketHealth} />
         <Outlet />
       </main>
       {/* The docks themselves render inside the chat page (features/dock); the xterm

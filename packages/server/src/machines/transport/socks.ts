@@ -19,6 +19,14 @@ import net from "node:net";
 /** How long the SOCKS handshake itself may take; the request behind it sets its own after. */
 const HANDSHAKE_TIMEOUT_MS = 20_000;
 
+/**
+ * The session's SOCKS listener itself could not be reached — nothing answered on the local
+ * port ssh's `-D` was to bind. The one dial failure a reconnect can cure: the child the
+ * session rode is gone (or its bind was taken), and the transport's next session dials
+ * through a port that exists. connection.ts rides exactly that, once.
+ */
+export class SocksPortUnreachable extends Error {}
+
 /** Dials `host:port` as seen from the machine, through the session's SOCKS port. */
 export function dialThroughSocks(
   socksPort: number,
@@ -41,12 +49,12 @@ export function dialThroughSocks(
     let buffer = Buffer.alloc(0);
     let stage: "greet" | "connect" = "greet";
     let settled = false;
-    const fail = (message: string) => {
+    const fail = (message: string, kind: new (message: string) => Error = Error) => {
       if (settled) return;
       settled = true;
       socket.removeListener("data", onData);
       socket.destroy();
-      reject(new Error(message));
+      reject(new kind(message));
     };
     // ssh answers a channel the machine refused — nothing listening on that port over there —
     // by closing the socket, with no SOCKS reply at all. A closed socket's idle timer never
@@ -81,7 +89,8 @@ export function dialThroughSocks(
         resolve(socket);
       }
     };
-    const onError = (err: Error) => fail(`the session's SOCKS port did not answer: ${err.message}`);
+    const onError = (err: Error) =>
+      fail(`the session's SOCKS port did not answer: ${err.message}`, SocksPortUnreachable);
     socket.once("connect", () => socket.write(Buffer.from([5, 1, 0]))); // no authentication
     socket.on("data", onData);
     socket.once("error", onError);

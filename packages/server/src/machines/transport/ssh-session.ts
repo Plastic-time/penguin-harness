@@ -33,6 +33,18 @@
  * timer, so traffic alone is neither what keeps it nor what could lose it. The one death it
  * does not come back from on its own is a stored password refused (login.ts): retrying it would
  * lock the account, so the session waits for the password to be saved again.
+ *
+ * A session is UP only once a command has completed over its child (#cameUp): ssh binds the
+ * `-D` listener after the TCP connection, the handshake and authentication, and `ExitOnForwardFailure`
+ * makes a child that could not bind exit before its first command runs — so the moment the
+ * first framed command's mark comes back is the moment the SOCKS listener exists. Until then
+ * `session()` answers null and nothing tells a listener the machine is up: the connect a page
+ * showed while ssh was still authenticating was the bug this closes (2026-10-21).
+ *
+ * The reopen is BOUNDED and said aloud: each attempt is one line in the server's log (which
+ * attempt, the wait it used, the cap), and after REOPEN_MAX_ATTEMPTS attempts in a row that
+ * never came up, the transport stops reopening on its own — the machines service's own streak
+ * (visible on the page, with its Retry) or the next connect starts another.
  */
 import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
@@ -83,6 +95,12 @@ const OPEN_TIMEOUT_MS = 30_000;
 /** A held session that dropped is reopened after this long, doubling per failure up to the cap. */
 const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 60_000;
+/**
+ * Consecutive reopens that never came up before the transport stops reopening on its own.
+ * The machines service runs its own bring-back streak beside this (visible on the page, with
+ * its Retry); when both have stopped, nothing dials the machine until a person or a job asks.
+ */
+const REOPEN_MAX_ATTEMPTS = 8;
 
 /**
  * Decoding the heredoc, on either base64 there is. GNU coreutils spells decode `-d` and
@@ -219,6 +237,10 @@ class MachineShell implements MachineSession {
   #held = false;
   #reopen: NodeJS.Timeout | null = null;
   #backoffMs = RECONNECT_MIN_MS;
+  /** Reopens in a row that never came up; reset by the first that does. */
+  #reopenFails = 0;
+  /** The streak stopped and its line was said once; a reopen that comes up clears it. */
+  #reopenSaidGaveUp = false;
 
   #target: RemoteTarget;
   /** The generation this shell reports to and signs in through: its maker's, until adopted. */
@@ -247,12 +269,13 @@ class MachineShell implements MachineSession {
 
   /** Keeps the session from here on: a session opened transiently is promoted in place. */
   hold(): void {
-    const promoted = !this.#held && this.#child !== null;
+    const promoted = !this.#held && this.#cameUp;
     this.#held = true;
     if (this.#idle !== null) clearTimeout(this.#idle);
     this.#idle = null;
-    // A transient session a command already opened is now a held one: it came up as far as
-    // anyone keeping it is concerned.
+    // A transient session a command already completed over is now a held one: it came up as
+    // far as anyone keeping it is concerned. One still opening announces itself when its
+    // first command completes (#cameUpNow) — not at spawn, which is not a connection.
     if (promoted) this.#host.changed(this.address, true);
     // Registered for the next generation to claim; holding again re-registers, which moves the
     // slot (and the duty to close it at process exit) to the generation that held it last.
@@ -272,10 +295,17 @@ class MachineShell implements MachineSession {
     return next;
   }
 
-  /** The session while it is up — pid and SOCKS port — or null. */
+  /**
+   * The session while it is up — pid and SOCKS port — or null. Up means a command has
+   * completed over this child (`#cameUp`): until the first mark comes back, ssh may not even
+   * have authenticated, and the `-D` listener the port names does not exist yet — answering
+   * from the cache in that window is how a dial met ECONNREFUSED while the page said
+   * "connected" (2026-10-21). `#socksPort` is still written at spawn: the session's argv
+   * needs the number before the child exists.
+   */
   session(): ShellSession | null {
     const pid = this.#child?.pid;
-    return pid !== undefined && this.#socksPort !== null
+    return pid !== undefined && this.#socksPort !== null && this.#cameUp
       ? { pid, socksPort: this.#socksPort }
       : null;
   }
@@ -288,6 +318,8 @@ class MachineShell implements MachineSession {
     this.#held = false;
     if (this.#reopen !== null) clearTimeout(this.#reopen);
     this.#reopen = null;
+    this.#reopenFails = 0;
+    this.#reopenSaidGaveUp = false;
     this.#reset();
   }
 
@@ -302,12 +334,26 @@ class MachineShell implements MachineSession {
   /**
    * A held session that is gone is scheduled back. The wait doubles per consecutive failure
    * and is reset by the first command that completes over a live child, so a machine that is
-   * down for an hour costs a spawn a minute, and one that blinked is back in a second.
+   * down for an hour costs a spawn a minute, and one that blinked is back in a second. Each
+   * attempt is said in the log — which attempt, the wait it used, the cap — and the streak
+   * stops at REOPEN_MAX_ATTEMPTS attempts that never came up: the service's own bring-back
+   * (the page's reconnecting streak, with its Retry) and the next connect start another.
    */
   #scheduleReopen(): void {
     if (this.#reopen !== null) return;
+    if (this.#reopenFails >= REOPEN_MAX_ATTEMPTS) {
+      if (this.#reopenSaidGaveUp) return;
+      this.#reopenSaidGaveUp = true;
+      console.log(
+        `[machines] ssh session to ${this.address.slice("ssh:".length)}: ${REOPEN_MAX_ATTEMPTS} reopens in a row never came up; stopped reopening on its own — a connect or a Retry starts another`,
+      );
+      return;
+    }
     const wait = this.#backoffMs;
     this.#backoffMs = Math.min(this.#backoffMs * 2, RECONNECT_MAX_MS);
+    console.log(
+      `[machines] ssh session to ${this.address.slice("ssh:".length)}: dropped; reopening, attempt ${this.#reopenFails + 1} of ${REOPEN_MAX_ATTEMPTS}, in ${wait} ms (backoff ${RECONNECT_MIN_MS}–${RECONNECT_MAX_MS} ms)`,
+    );
     this.#reopen = setTimeout(() => {
       this.#reopen = null;
       if (!this.#held || this.#child !== null) return;
@@ -316,8 +362,24 @@ class MachineShell implements MachineSession {
     this.#reopen.unref?.();
   }
 
+  /**
+   * The first command over this child completed: the child authenticated, and (with
+   * `ExitOnForwardFailure`) its SOCKS listener is bound. A held session is up from this
+   * moment — not from spawn — so this is where its listeners are told, the reopen streak
+   * starts over, and every dial waiting on the session (awaitHeldUp) is settled.
+   */
+  #cameUpNow(): void {
+    this.#reopenFails = 0;
+    this.#reopenSaidGaveUp = false;
+    this.#backoffMs = RECONNECT_MIN_MS;
+    if (this.#held) this.#host.changed(this.address, true);
+  }
+
   #drop(): void {
-    const wasUp = this.#child !== null;
+    // Up is "a command completed over this child", not "a child exists": a child that died
+    // before its first mark was never announced up, so its death is not a drop FROM up —
+    // it is a reopen attempt that did not come up.
+    const wasUp = this.#cameUp;
     // A password refused before the session ever came up is remembered (login.ts): nothing
     // dials this alias with it again, the reopen below included.
     const refused =
@@ -352,7 +414,15 @@ class MachineShell implements MachineSession {
     this.#stderr = "";
     if (this.#held) {
       if (wasUp) this.#host.changed(this.address, false);
-      if (!refused) this.#scheduleReopen();
+      if (!refused) {
+        if (!wasUp) {
+          this.#reopenFails += 1;
+          console.log(
+            `[machines] ssh session to ${this.address.slice("ssh:".length)}: attempt ${this.#reopenFails} of ${REOPEN_MAX_ATTEMPTS} did not come up`,
+          );
+        }
+        this.#scheduleReopen();
+      }
     }
   }
 
@@ -403,7 +473,8 @@ class MachineShell implements MachineSession {
     });
     this.#child = child;
     this.#socksPort = port;
-    if (this.#held) this.#host.changed(this.address, true);
+    // NOT announced up here: spawn is not a connection. The announcement (and the waiters'
+    // settle) is #cameUpNow, when the first command's mark comes back over this child.
     return child;
   }
 
@@ -424,7 +495,9 @@ class MachineShell implements MachineSession {
     }
     if (at === -1) return;
     // A mark came back: this child signed in, and whatever ssh says from here is not a refusal.
+    const first = !this.#cameUp;
     this.#cameUp = true;
+    if (first) this.#cameUpNow();
     const rest = this.#buffer.slice(at + this.#mark.length);
     const end = rest.indexOf("\n");
     if (end === -1) return; // The exit code has not arrived yet.
@@ -480,9 +553,8 @@ class MachineShell implements MachineSession {
         `( ${DECODE} | ( ${command} ) ) <<'${end}' 2>&1 ; ${mark}\n${body}\n${end}\n`,
       );
     }).finally(() => {
-      // A command completed over a live child: whatever the last drop cost, the next starts
-      // from the shortest wait again.
-      if (this.#child !== null) this.#backoffMs = RECONNECT_MIN_MS;
+      // The backoff restarts at #cameUpNow — the first command a child answered is the
+      // recovery — rather than here: a command that FAILED over a corpse was not a recovery.
       if (this.#held) return;
       this.#idle = setTimeout(() => this.close(), IDLE_MS);
       this.#idle.unref?.();
@@ -584,13 +656,15 @@ export function isHeld(machineAddress: string): boolean {
 /**
  * What a platform generation does on its way out: every transient session it opened is closed,
  * and every held one is left in the resource registry for the successor to claim — or closed
- * too when no registry is attached. Either way this generation's map is emptied.
+ * too when no registry is attached. Either way this generation's map is emptied, and nothing
+ * waits for a session of ours any more.
  */
 export function closeAllShells(): void {
   for (const shell of sessions.values()) {
     if (!shell.held() || registry === null) shell.close();
   }
   sessions.clear();
+  for (const address of [...upWaiters.keys()]) settleUpWaiters(address, null);
 }
 
 /** The session to a machine, while it is up — held, or opened by a command and idling out. */
@@ -607,8 +681,79 @@ export function heldSessionOf(machineAddress: string): ShellSession | null {
   return isHeld(machineAddress) ? sessionOf(machineAddress) : null;
 }
 
+/**
+ * Waits for the session HELD to a machine to be up — the one primitive a dial needs to ride
+ * the transport's own reconnect instead of opening a connection of its own (connection.ts).
+ * Every waiter of an address settles on the same event — the held session's first completed
+ * command over its new child — so however many dials arrive inside one reconnect window, they
+ * all merge into that one reconnect and no second ssh is ever spawned for them.
+ *
+ * Answers the session at once when it is already up (and not the child `notPid` names — the
+ * caller of a redial knows the one whose SOCKS port just refused is dead). Answers null, also
+ * at once, when nothing is held to the machine: nothing is coming, and a dial must not turn
+ * that into a connection of its own. Otherwise the wait ends one way or the other by its
+ * deadline — up, or null. Bounded: this never opens, retries or schedules anything itself.
+ */
+export function awaitHeldUp(
+  machineAddress: string,
+  deadlineMs: number,
+  notPid?: number,
+): Promise<ShellSession | null> {
+  const live = heldSessionOf(machineAddress);
+  if (live !== null && live.pid !== notPid) return Promise.resolve(live);
+  if (!isHeld(machineAddress)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let done = false;
+    let timer: NodeJS.Timeout;
+    const settle = (session: ShellSession | null): void => {
+      if (done) return;
+      if (session !== null && session.pid === notPid) {
+        // The session that came up is the child the caller watched die: register for the
+        // next one, until the deadline has its say.
+        const again = upWaiters.get(machineAddress) ?? new Set<UpWaiter>();
+        again.add(settle);
+        upWaiters.set(machineAddress, again);
+        return;
+      }
+      done = true;
+      clearTimeout(timer);
+      resolve(session);
+    };
+    const entry = upWaiters.get(machineAddress) ?? new Set<UpWaiter>();
+    entry.add(settle);
+    upWaiters.set(machineAddress, entry);
+    timer = setTimeout(() => {
+      done = true;
+      const current = upWaiters.get(machineAddress);
+      current?.delete(settle);
+      if (current !== undefined && current.size === 0) upWaiters.delete(machineAddress);
+      resolve(null);
+    }, deadlineMs);
+    timer.unref?.();
+  });
+}
+
+/** A waiter registered by awaitHeldUp, settled with the session (or null when hope is off). */
+type UpWaiter = (session: ShellSession | null) => void;
+const upWaiters = new Map<string, Set<UpWaiter>>();
+
+/** Settles every waiter of a machine — its session is up, or nothing more is coming. */
+function settleUpWaiters(machineAddress: string, session: ShellSession | null): void {
+  const waiting = upWaiters.get(machineAddress);
+  if (waiting === undefined) return;
+  upWaiters.delete(machineAddress);
+  for (const waiter of waiting) waiter(session);
+}
+
+// The held session's "up" settles its waiters: told (tell, above) exactly when the first
+// command over the new child completed — the moment its SOCKS listener is bound.
+onSessionChange((address, up) => {
+  if (up) settleUpWaiters(address, heldSessionOf(address));
+});
+
 /** Lets go of a machine's session — for a disconnect, or a machine that went away. */
 export function closeShell(machineAddress: string): void {
   sessions.get(machineAddress)?.close();
   sessions.delete(machineAddress);
+  settleUpWaiters(machineAddress, null);
 }

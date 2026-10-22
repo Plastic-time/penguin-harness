@@ -27,6 +27,9 @@
  *
  * Without a socket — the browser cannot open one, or the handshake keeps failing — calls
  * fall back to fetch, and streams wait in silence until one comes or the page reloads.
+ * That silence is the one thing this module now refuses to leave the reader in: the
+ * situation it is in is a first-class reading (`health()`, `onHealth`) and the layout's
+ * quiet indicator is its caller — a reconnect being tried, and the give-up that ends them.
  */
 import type { OmniMessage } from "@prismshadow/penguin-core/omnimessage";
 import type { ServerEvent } from "@prismshadow/penguin-server/api";
@@ -140,6 +143,16 @@ function fatal(status: number): boolean {
   return status === 401 || status === 403 || status === 404;
 }
 
+/**
+ * The socket's situation for the layout's quiet indicator: `fine` says nothing, and the
+ * other two are the two states the page must not pass in silence. `reconnecting` is a retry
+ * in progress — a socket that was up coming back, or handshakes that have already failed on
+ * this page; `gaveUp` is the GIVE_UP branch: three handshakes never opened against a server
+ * that kept answering `/api/me`, so calls run as fetches and streams wait until the page
+ * reloads — which is the one action that state leaves the reader.
+ */
+export type SocketHealth = "fine" | "reconnecting" | "gaveUp";
+
 export class ApiSocket {
   #ws: WebSocket | null = null;
   #state: State = "closed";
@@ -175,6 +188,12 @@ export class ApiSocket {
   #lastFrameAt = 0;
   /** Frames received on the current socket, heartbeats included (a call's timeout compares it). */
   #framesSeen = 0;
+  /** The socket opened once: a connect after that is a reconnect, not the page's first start. */
+  #everOpened = false;
+  /** The page gave the socket up (#dropped's GIVE_UP branch); only a reload clears it. */
+  #gaveUp = false;
+  /** The layout's quiet indicator, told whenever the socket's situation changes. */
+  readonly #healthListeners = new Set<(health: SocketHealth) => void>();
 
   /**
    * `urlFor` spells the socket's address for a user; `whoAmI` finds out who is signed in
@@ -211,6 +230,41 @@ export class ApiSocket {
   /** The socket is not coming: calls use HTTP, streams wait for a socket that never comes. */
   isUnavailable(): boolean {
     return this.#state === "unavailable";
+  }
+
+  /**
+   * The socket's situation for the layout's quiet indicator (SocketHealth). `fine` covers
+   * every state the page has no reason to speak about: open, a first-ever connect still in
+   * flight (nothing was lost yet), a browser with no WebSocket (nothing was lost; nothing
+   * reconnects), and a closed socket with nothing riding it (the next call opens it again).
+   * A retry is `reconnecting`; the GIVE_UP branch is `gaveUp` — the silence the layout must
+   * not leave a reader in (the indicator says it and offers the reload).
+   */
+  health(): SocketHealth {
+    if (this.#gaveUp) return "gaveUp";
+    if (this.#state === "open" || this.#state === "unavailable") return "fine";
+    if (this.#state === "connecting")
+      return this.#everOpened || this.#neverOpened > 0 ? "reconnecting" : "fine";
+    return this.#reconnect !== null && this.#waiting.size > 0 ? "reconnecting" : "fine";
+  }
+
+  /**
+   * Tells `listener` the situation now and whenever it changes, until the returned
+   * unsubscribe runs. Being watched changes nothing about the socket's own retry and
+   * backoff behaviour.
+   */
+  onHealth(listener: (health: SocketHealth) => void): () => void {
+    this.#healthListeners.add(listener);
+    listener(this.health());
+    return () => {
+      this.#healthListeners.delete(listener);
+    };
+  }
+
+  /** Every listener, with the situation computed once — cheap enough to call at each transition. */
+  #notify(): void {
+    const health = this.health();
+    for (const listener of this.#healthListeners) listener(health);
   }
 
   /**
@@ -364,6 +418,7 @@ export class ApiSocket {
     if (this.isUnavailable()) return { close: () => this.#dropStream(entry) };
     if (this.#state === "open") this.#issue(entry);
     else void this.ready();
+    this.#notify();
     return { close: () => this.#dropStream(entry) };
   }
 
@@ -379,6 +434,7 @@ export class ApiSocket {
       this.#cancel(entry.id);
       entry.id = null;
     }
+    this.#notify();
   }
 
   /** Opens the socket; streams and calls queue behind the handshake. Only from ready(). */
@@ -393,6 +449,7 @@ export class ApiSocket {
       return;
     }
     this.#state = "connecting";
+    this.#notify();
     let ws: WebSocket;
     try {
       ws = new WebSocket(url);
@@ -419,10 +476,12 @@ export class ApiSocket {
       this.#state = "open";
       this.#attempts = 0;
       this.#neverOpened = 0;
+      this.#everOpened = true;
       this.#lastFrameAt = performance.now();
       this.#armWatchdog();
       this.#settleReady(true);
       for (const entry of [...this.#waiting]) this.#issue(entry);
+      this.#notify();
     };
     ws.onmessage = (e: MessageEvent<string>) => {
       if (this.#ws !== ws) return;
@@ -546,6 +605,7 @@ export class ApiSocket {
       if (this.#state === "open") this.#issue(entry);
       else void this.ready();
     }, delayMs);
+    this.#notify();
   }
 
   #frame(raw: string): void {
@@ -653,17 +713,24 @@ export class ApiSocket {
     this.#streams.clear();
 
     if (this.#neverOpened >= GIVE_UP_AFTER) {
+      this.#gaveUp = true;
       this.#state = "unavailable";
       console.error(
         `[api-socket] giving up on the API socket: ${GIVE_UP_AFTER} handshakes never opened (last: ${this.#lastClose}). ` +
           `Calls run as fetches and streams stay silent until this page reloads — the server has no socket for this tab.`,
       );
+      this.#notify();
       return;
     }
-    if (this.#waiting.size === 0) return; // nothing to carry: reopen lazily on the next ask
+    if (this.#waiting.size === 0) {
+      // nothing to carry: reopen lazily on the next ask
+      this.#notify();
+      return;
+    }
     // A refusal from a reachable server is retried at once (it is cheap and answers fast);
     // a dropped connection, or a server that could not be reached, on the backoff.
     this.#scheduleReconnect(wasOpen || !this.#freshProbe ? this.#backoff() : REFUSED_RETRY_MS);
+    this.#notify();
   }
 
   /**
@@ -676,7 +743,12 @@ export class ApiSocket {
     this.#reconnect = setTimeout(() => {
       this.#reconnect = null;
       void this.ready().then((open) => {
-        if (open || this.#state !== "closed" || this.#waiting.size === 0) return;
+        if (open || this.#state !== "closed" || this.#waiting.size === 0) {
+          // The retry left the queue with nothing to come back for — the situation the
+          // indicator last heard is no longer true.
+          this.#notify();
+          return;
+        }
         this.#scheduleReconnect(this.#backoff());
       });
     }, delayMs);

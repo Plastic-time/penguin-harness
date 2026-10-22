@@ -1,10 +1,11 @@
 /**
  * The API socket client (api/socket.ts) against a scripted WebSocket: frames out, answers
- * in, streams that outlive the socket, the identity it settles by itself, and giving up
- * when no socket is to be had.
+ * in, streams that outlive the socket, the identity it settles by itself, giving up when no
+ * socket is to be had, and the situation it tells the layout (health) through both.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiSocket, SocketTimeoutError } from "../src/api/socket";
+import type { SocketHealth } from "../src/api/socket";
 import type { StreamConnection, StreamHandlers } from "../src/api/sse";
 import { FakeSocket } from "./fake-socket";
 
@@ -666,5 +667,85 @@ describe("per-stream heartbeat", () => {
       warn.mock.calls.some(([m]) => String(m).includes("re-subscribing from its last event id")),
     ).toBe(false);
     warn.mockRestore();
+  });
+});
+
+describe("health", () => {
+  it("stays fine through a page's first connect: nothing has been lost yet", async () => {
+    const seen: SocketHealth[] = [];
+    socket.onHealth((h) => seen.push(h));
+    const conn = socket.stream("/api/events", handlers());
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(socket.health()).toBe("fine"); // the first handshake is in flight, not a retry
+    last().open();
+    expect(socket.health()).toBe("fine");
+    expect(seen.length).toBeGreaterThan(0); // told the situation at once
+    expect(seen.every((h) => h === "fine")).toBe(true); // and it never stopped being fine
+    conn.close();
+  });
+
+  it("says reconnecting from the drop until the socket is back, then fine again", async () => {
+    const seen: SocketHealth[] = [];
+    const off = socket.onHealth((h) => seen.push(h));
+    const conn = socket.stream("/api/events", handlers());
+    await Promise.resolve();
+    await Promise.resolve();
+    last().open();
+    last().drop();
+    expect(socket.health()).toBe("reconnecting"); // parked streams, a retry scheduled
+    vi.advanceTimersByTime(1_000); // the drop backoff: the next handshake begins
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(socket.health()).toBe("reconnecting"); // the retry's handshake is in flight
+    last().open();
+    expect(socket.health()).toBe("fine");
+    expect(seen.filter((h) => h === "reconnecting").length).toBeGreaterThan(0);
+    off();
+    conn.close();
+  });
+
+  it("says reconnecting while fresh handshakes fail, then gaveUp on the third, and stays", async () => {
+    const seen: SocketHealth[] = [];
+    socket.onHealth((h) => seen.push(h));
+    const conn = socket.stream("/api/events", handlers());
+    for (let i = 0; i < 3; i++) {
+      await Promise.resolve();
+      await Promise.resolve();
+      last().drop(); // a handshake that never opened, against a server that answered /api/me
+      if (i < 2) {
+        expect(socket.health()).toBe("reconnecting");
+        vi.advanceTimersByTime(250);
+      }
+    }
+    expect(socket.health()).toBe("gaveUp");
+    vi.advanceTimersByTime(120_000);
+    expect(socket.health()).toBe("gaveUp"); // sticky: only a reload clears it
+    await expect(socket.ready()).resolves.toBe(false);
+    expect(seen).toContain("gaveUp");
+    conn.close();
+  });
+
+  it("stops saying reconnecting when the last stream closes: nothing rides the socket", async () => {
+    const conn = socket.stream("/api/events", handlers());
+    await Promise.resolve();
+    await Promise.resolve();
+    last().open();
+    last().drop();
+    expect(socket.health()).toBe("reconnecting");
+    conn.close(); // the page unmounted its streams; a retry armed for them is over
+    expect(socket.health()).toBe("fine");
+  });
+
+  it("stops telling a listener that unsubscribed", async () => {
+    const seen: SocketHealth[] = [];
+    const off = socket.onHealth((h) => seen.push(h));
+    off();
+    const conn = socket.stream("/api/events", handlers());
+    await Promise.resolve();
+    await Promise.resolve();
+    last().drop();
+    expect(seen).toEqual(["fine"]); // the situation at subscribe time, and nothing since
+    conn.close();
   });
 });

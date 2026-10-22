@@ -27,6 +27,7 @@ export {
   SESSION_GROUP,
   SESSION_SHAPE_ID,
   attachSessionRegistry,
+  awaitHeldUp,
   heldSessionOf,
   onSessionChange,
   sessionOf,
