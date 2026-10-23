@@ -6026,15 +6026,15 @@ Scenarios:
    * user's own field names and stay the same words in both languages.
    */
   statusBar: {
-    /** The bar's left side — the machine this harness runs on. */
+    /** The bar's left side — the machine the user is working on. */
     cpu: "CPU",
     memory: "Memory",
     /** The CPU read while the sampler's first window is still open. */
     measuring: "measuring",
     /** The memory pair, e.g. `6.2 / 16 GB`. */
     memoryOf: (used: string, total: string): string => `${used} / ${total} GB`,
-    cpuTooltip: "Whole-machine CPU utilization",
-    memoryTooltip: "Used / total memory",
+    cpuTooltip: "Whole-machine CPU utilization of the machine you are working on",
+    memoryTooltip: "Used / total memory of the machine you are working on",
     /** The bar's right side — the three labeled fields, in the order the bar shows them. */
     companyLabel: "company",
     workdirLabel: "workdir",
@@ -6042,17 +6042,16 @@ Scenarios:
     workdirTooltip: "The workspace of the Session you are on",
     /** The session counts. The format is the user's own and stays identical in both languages. */
     sessions: (running: number, all: number): string => `session: ${running} / ${all}`,
-    sessionsTooltip: "The whole harness: running / all (excluding ones removed from the list)",
+    sessionsTooltip: "Running across every machine / the Sessions you have opened",
     /** The list the counts open. */
-    listTitle: "Sessions across the harness",
-    listEmpty: "No sessions",
+    listTitle: "Sessions you have opened",
+    listEmpty: "You have not opened a Session yet",
     /** The one-time mark a Session the user has opened carries once it goes idle. */
     markedIdle: "Went idle",
     runningLabel: "Running",
     idleLabel: "Idle",
-    remove: "Remove from the list",
-    removeHint: "Remove from the list; the all count goes down by one with it",
-    olderHidden: (n: number): string => `${n} older sessions not shown`,
+    remove: "Stop keeping this Session",
+    removeHint: "Stop keeping it; the opened count goes down by one with it",
   },
   errors: {
     networkError: "Network error, please check your connection",

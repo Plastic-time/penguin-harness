@@ -2,30 +2,30 @@
  * The status bar's counting and marking rules, kept free of React so tests drive them
  * directly (the component only wires polling, storage and navigation on top).
  *
- * What the user asked the bar to keep, over the WHOLE harness (the server's one poll — not
- * the Project the sidebar lists):
+ * What the user asked the bar to keep, over the WHOLE harness — every machine it spans, not
+ * the Project the sidebar lists:
  *
- * - `session: ${running} / ${all}` — `running` is the server's live truth; `all` is the
- *   harness's every Session MINUS the ones this browser has closed out of the list: a row's
- *   x removes it from the list and, per the ticket's 「移除即关闭」 reading, that removal is
- *   the closing that makes the count go down by one.
- * - A Session the user has OPENED (the route sits on it once) is marked once when it goes
- *   idle — a finished-working signal the list carries until the user looks at the Session
- *   again. Transitions are observed between consecutive polls; a reload forgets the previous
- *   statuses, so a flip that happens while the page is closed is not re-marked (there was
- *   nothing observed to mark from).
- * - The closed set is client bookkeeping (localStorage) capped at CAP ids, oldest evicted:
- *   it is the user's own tracker, not a deletion — the Session itself is untouched, and the
- *   harness's own count stays what the server says. A closed id deleted on the server later
- *   still subtracts until it falls off the cap; the one-count drift that costs is accepted
- *   (the exact fix — intersecting the set server-side — rides on a later need).
+ * - `session: ${active} / ${viewed}` — `active` is the server's answer: the Sessions with a
+ *   Task in progress or a compaction running, summed over every machine that answered.
+ *   `viewed` is THIS browser's own count: the Sessions the user has opened (the route sat on
+ *   one once), still kept — the bar's second number is 「我查看了多少个」. The list the count
+ *   opens is exactly those Sessions, each row stamped with the machine it lives on; a row's
+ *   x stops keeping it — the ticket's 「移除即关闭」, the one removal that makes the count go
+ *   down by one. What the harness itself holds is the first number's business, not the
+ *   second's.
+ * - A Session the user has OPENED is marked once when it goes idle — a finished-working
+ *   signal the list carries until the user looks at the Session again. Transitions are
+ *   observed between consecutive polls; a reload forgets the previous statuses, so a flip
+ *   that happens while the page is closed is not re-marked (there was nothing observed to
+ *   mark from).
+ * - Both sets are client bookkeeping (localStorage) capped at CAP ids, oldest evicted: they
+ *   are the user's own tracker, not a deletion — the Sessions themselves are untouched.
  */
 import type { HarnessStatusSession, SessionStatus } from "@prismshadow/penguin-server/api";
 
-/** localStorage keys under which the three sets persist (all best-effort; see the loader). */
+/** localStorage keys under which the two sets persist (all best-effort; see the loader). */
 export const OPENED_KEY = "penguin.statusBar.opened";
 export const MARKS_KEY = "penguin.statusBar.marks";
-export const CLOSED_KEY = "penguin.statusBar.closed";
 
 /** How many ids each set keeps; the oldest evicted. */
 export const CAP = 200;
@@ -49,9 +49,11 @@ export function pageStorage(): StatusBarStorage | null {
 
 /**
  * An insertion-ordered set of session ids with a size cap (oldest evicted). Order is what
- * makes the cap fair — the oldest bookkeeping entry goes, not an arbitrary one. A Set
- * subclass, so it flows anywhere a set of ids is read; the only behaviour it adds is the
- * cap, and that re-adding an id moves it to the end (recency is what eviction goes by).
+ * makes the cap fair — the oldest bookkeeping entry goes, not an arbitrary one — and what
+ * names the machine the user works on: the last id in the set is the Session they viewed
+ * most recently. A Set subclass, so it flows anywhere a set of ids is read; the only
+ * behaviour it adds is the cap, and that re-adding an id moves it to the end (recency is
+ * what eviction goes by).
  */
 export class IdSet extends Set<string> {
   constructor(
@@ -131,20 +133,41 @@ export function marksForTransitions(
 }
 
 /**
- * The bar's `all`: the harness's every Session minus the ones this browser closed out of
- * the list. Never below zero (a closed id the server has since deleted costs at most one,
- * until it falls off the cap).
+ * The bar's `all`: how many Sessions the user has viewed and still keeps — the opened set's
+ * own size. An x removes from the set, so it is the one thing that makes this count go down.
  */
-export function trackedTotal(total: number, closed: ReadonlySet<string>): number {
-  return Math.max(0, total - closed.size);
+export function viewedCount(opened: ReadonlySet<string>): number {
+  return opened.size;
 }
 
-/** The rows the list shows: every row the server sent except the closed-out ones. */
-export function visibleRows(
+/**
+ * The machine the user is working on: the machine of the Session they viewed most recently
+ * that this poll still holds a row for — the opened set read newest-first, so a Session
+ * opened out of order (or whose machine went quiet) falls to the next one, and null means
+ * this server. The company a person works with lives on its machine, so the load the bar
+ * shows is the load of whatever they last worked on.
+ */
+export function workingMachineOf(
+  opened: ReadonlySet<string>,
   rows: readonly HarnessStatusSession[],
-  closed: ReadonlySet<string>,
-): HarnessStatusSession[] {
-  return rows.filter((row) => !closed.has(row.sessionId));
+): string | null {
+  const rowBySession = new Map(rows.map((row) => [row.sessionId, row]));
+  const ids = [...opened]; // a Set iterates oldest-first; the LAST is the most recent.
+  for (let i = ids.length - 1; i >= 0; i--) {
+    const row = rowBySession.get(ids[i]!);
+    if (row !== undefined) return row.machineId;
+  }
+  return null;
+}
+
+/** The poll's rows in the order the list shows them: newest activity first, id last. */
+export function byLatest(rows: readonly HarnessStatusSession[]): HarnessStatusSession[] {
+  return [...rows].sort((a, b) => {
+    if (a.lastActiveAt !== b.lastActiveAt) {
+      return a.lastActiveAt < b.lastActiveAt ? 1 : -1;
+    }
+    return a.sessionId < b.sessionId ? 1 : a.sessionId > b.sessionId ? -1 : 0;
+  });
 }
 
 /** One decimal of GB — the bar's memory shape (`6.2 / 16 GB`). */

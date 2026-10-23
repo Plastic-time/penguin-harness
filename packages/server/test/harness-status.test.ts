@@ -1,19 +1,24 @@
 /**
- * The harness status bar's one poll, GET /api/harness-status:
+ * The harness status bar's one poll, POST /api/harness-status:
  *
  * - A non-admin is refused with 403 `admin_required` — the counts and the list span every
  *   Project and every user's Sessions, so the surface is the admin's alone.
- * - An empty harness answers zero counts, an empty list, and the system shape (memory is a
- *   real pair; CPU is null until a second reading exists).
- * - Every row counts whichever Project or client owns it, the list is newest-activity-first
- *   and capped, and a row no runtime is working in reads idle — so it counts toward
- *   `total` and not toward `running`.
+ * - An empty harness answers zero counts, an empty list, an empty `machines`, and the system
+ *   shape (memory is a real pair; CPU is null until a second reading exists).
+ * - Every row counts whichever Project or client owns it — the request names the ids it
+ *   opened, and the answer carries exactly those rows, newest first; malformed ids are
+ *   dropped rather than refused, and more than 200 is a 400.
+ * - The fan-out: each connected machine is asked through its own client with `own` set, its
+ *   running count is summed in, its rows ride the answer stamped with the machine that
+ *   answered, and its load lands in `machines`. A machine that answers 404 (a build from
+ *   before this route) or garbage contributes nothing; an `own` request of our own asks no
+ *   machine at all.
  * - The system sampler's pure half: a utilization delta is a ratio of the two readings
  *   (all-idle 0, all-busy 100, mixed exact, an idle core's zero window is fine), a zero or
  *   backwards delta is null rather than a divide-by-zero, mismatched shapes are null; the
  *   service diffs consecutive readings and serves its cache within the spacing window.
  */
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import os from "node:os";
 import type { HarnessStatusResponse } from "../src/api/types.js";
 import type { SessionRow } from "../src/db/repos/sessions.js";
@@ -26,19 +31,26 @@ import {
 import type { CpuTimes } from "../src/services/system-status.js";
 import { apiClient, createTestApp, loginAdmin, provisionUser } from "./helpers.js";
 import type { TestApp } from "./helpers.js";
+import { fakeMachinesNode } from "./fixtures/machines.js";
+import type { FleetMachineDouble } from "./fixtures/machines.js";
 
-describe("harness status bar (GET /api/harness-status)", () => {
+describe("harness status bar (POST /api/harness-status)", () => {
   let t: TestApp;
   let admin: ReturnType<typeof apiClient>;
   let member: ReturnType<typeof apiClient>;
+  /** The machines the poll fans out to, swapped per case; empty means this server alone. */
+  let fleet: FleetMachineDouble[] = [];
 
   beforeAll(async () => {
-    t = await createTestApp();
+    t = await createTestApp({ machines: fakeMachinesNode(() => [], () => fleet) });
     admin = apiClient(t.app, (await loginAdmin(t.app)).cookie);
     member = apiClient(t.app, (await provisionUser(t.app, "alice")).cookie);
   });
   afterAll(async () => {
     await t.cleanup();
+  });
+  afterEach(() => {
+    fleet = [];
   });
 
   /** A row as the index stores one, with the fields the bar's list reads. */
@@ -59,19 +71,19 @@ describe("harness status bar (GET /api/harness-status)", () => {
   });
 
   it("refuses a non-admin with 403 admin_required", async () => {
-    const res = await member.get("/api/harness-status");
+    const res = await member.post("/api/harness-status", { open: [] });
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("admin_required");
   });
 
   it("answers zero counts and the system shape on an empty harness", async () => {
-    const res = await admin.get("/api/harness-status");
+    const res = await admin.post("/api/harness-status", { open: [] });
     expect(res.status).toBe(200);
     const body = (await res.json()) as HarnessStatusResponse;
-    expect(body.total).toBe(0);
     expect(body.running).toBe(0);
     expect(body.sessions).toEqual([]);
+    expect(body.machines).toEqual([]);
     // Memory is a live pair of the machine running the test; CPU is null on the first
     // reading of the process (no previous reading to take a delta against).
     expect(body.system.memoryTotalBytes).toBeGreaterThan(0);
@@ -80,7 +92,7 @@ describe("harness status bar (GET /api/harness-status)", () => {
     expect(body.system.cpuPercent).toBeNull();
   });
 
-  it("counts every row, lists newest first capped, and idle rows never count as running", async () => {
+  it("counts every row, answers exactly the opened rows, and never answers a total", async () => {
     // 150 rows across two Projects and three clients, stamped in reverse so row numbers
     // and recency agree; row 150 is the newest.
     for (let n = 150; n >= 1; n--) {
@@ -92,24 +104,171 @@ describe("harness status bar (GET /api/harness-status)", () => {
         }),
       );
     }
-    const res = await admin.get("/api/harness-status");
+    const res = await admin.post("/api/harness-status", {
+      open: ["sess-002", "sess-147", "sess-150"],
+    });
     expect(res.status).toBe(200);
     const body = (await res.json()) as HarnessStatusResponse;
-    expect(body.total).toBe(150);
-    // No runtime entry exists for any row, so nothing is running and every row reads idle.
+    // No runtime entry exists for any row, so nothing is running and every row reads idle —
+    // the count still spans every row the harness holds, not only the opened ones.
     expect(body.running).toBe(0);
-    expect(body.sessions).toHaveLength(100);
+    expect(body.sessions.map((s) => s.sessionId)).toEqual(["sess-150", "sess-147", "sess-002"]);
     const [first] = body.sessions;
-    expect(first?.sessionId).toBe("sess-150");
     expect(first?.title).toBe("the newest one");
     expect(first?.status).toBe("idle");
+    expect(first?.machineId).toBeNull();
     // The row's own fields ride along, whichever Project or client owns it.
     expect(first?.projectId).toBe("p2");
-    expect(body.sessions[99]?.sessionId).toBe("sess-051");
     const orgRow = body.sessions.find((s) => s.sessionId === "sess-147");
     expect(orgRow?.client).toBe("org");
-    const legacyRow = body.sessions.find((s) => s.sessionId === "sess-146");
-    expect(legacyRow?.client).toBeNull();
+    // The old whole-table total is gone: the second count is the caller's own business.
+    expect(body).not.toHaveProperty("total");
+  });
+
+  it("drops malformed ids and refuses more than 200", async () => {
+    const dropped = await admin.post("/api/harness-status", {
+      open: [42, true, "", "sess-150", "a-b_C9"],
+    });
+    expect(dropped.status).toBe(200);
+    const body = (await dropped.json()) as HarnessStatusResponse;
+    // The malformed ids are gone; "a-b_C9" is a well-formed id this harness holds no row
+    // for, so it simply has nothing to answer with.
+    expect(body.sessions.map((s) => s.sessionId)).toEqual(["sess-150"]);
+
+    const ids = Array.from({ length: 201 }, (_, i) => `sess-${String(i).padStart(3, "0")}`);
+    const refused = await admin.post("/api/harness-status", { open: ids });
+    expect(refused.status).toBe(400);
+    const error = (await refused.json()) as { error: { code: string } };
+    expect(error.error.code).toBe("bad_request");
+  });
+
+  /** A machine's share as a stub client would hand it: fixed numbers, its rows stamped null. */
+  const remoteShare = (over: Partial<Record<string, unknown>> = {}) => ({
+    running: 2,
+    sessions: [
+      {
+        sessionId: "sess-remote-001",
+        projectId: "pm",
+        agentId: "general",
+        title: "the far side",
+        workspace: "/remote/ws",
+        client: "org",
+        status: "running",
+        lastActiveAt: "2026-10-22T01:00:00.000Z",
+        machineId: null,
+      },
+    ],
+    system: { cpuPercent: 11.1, memoryUsedBytes: 1_000, memoryTotalBytes: 2_000 },
+    machines: [],
+    ...over,
+  });
+
+  it("sums a machine's share in, stamps its rows and carries its load", async () => {
+    const asked: Array<{ method: string; path: string; body: unknown; timeoutMs?: number }> = [];
+    fleet = [
+      {
+        machineId: "m-remote",
+        alias: "remote-box",
+        api: {
+          request: async (method, path, body, timeoutMs) => {
+            asked.push({ method, path, body, timeoutMs });
+            return { status: 200, text: JSON.stringify(remoteShare()) };
+          },
+        },
+      },
+    ];
+    const res = await admin.post("/api/harness-status", {
+      open: ["sess-150", "sess-remote-001"],
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as HarnessStatusResponse;
+    // This server's 0 plus the machine's 2.
+    expect(body.running).toBe(2);
+    // Both rows, the machine's stamped with the machine that answered.
+    expect(body.sessions).toHaveLength(2);
+    const remote = body.sessions.find((s) => s.sessionId === "sess-remote-001");
+    expect(remote?.machineId).toBe("m-remote");
+    expect(remote?.status).toBe("running");
+    const local = body.sessions.find((s) => s.sessionId === "sess-150");
+    expect(local?.machineId).toBeNull();
+    // The machine's own load rides the answer under its own id and alias.
+    expect(body.machines).toEqual([
+      {
+        machineId: "m-remote",
+        alias: "remote-box",
+        system: { cpuPercent: 11.1, memoryUsedBytes: 1_000, memoryTotalBytes: 2_000 },
+      },
+    ]);
+    // The fan-out asked the machine's own copy of the route, with `own` set so a machine
+    // that lists this server back never makes the poll recurse.
+    expect(asked).toEqual([
+      {
+        method: "POST",
+        path: "/api/harness-status",
+        body: { open: ["sess-150", "sess-remote-001"], own: true },
+        timeoutMs: 4_000,
+      },
+    ]);
+  });
+
+  it("a machine answering 404 or garbage contributes nothing", async () => {
+    fleet = [
+      {
+        machineId: "m-old",
+        alias: "old-box",
+        api: { request: async () => ({ status: 404, text: "no such route" }) },
+      },
+      {
+        machineId: "m-odd",
+        alias: "odd-box",
+        api: { request: async () => ({ status: 200, text: "<html>not json</html>" }) },
+      },
+      {
+        machineId: "m-shape",
+        alias: "shape-box",
+        api: {
+          request: async () => ({ status: 200, text: JSON.stringify({ total: 5 }) }),
+        },
+      },
+      {
+        machineId: "m-null",
+        alias: "null-box",
+        api: {
+          request: async () => ({ status: 200, text: JSON.stringify(remoteShare({ running: "x" })) }),
+        },
+      },
+    ];
+    const res = await admin.post("/api/harness-status", { open: ["sess-remote-001"] });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as HarnessStatusResponse;
+    expect(body.running).toBe(0);
+    expect(body.machines).toEqual([]);
+    expect(body.sessions).toEqual([]);
+  });
+
+  it("an own request answers this server alone, asking no machine", async () => {
+    let asked = 0;
+    fleet = [
+      {
+        machineId: "m-counted",
+        alias: "counted-box",
+        api: {
+          request: async () => {
+            asked += 1;
+            return { status: 200, text: JSON.stringify(remoteShare()) };
+          },
+        },
+      },
+    ];
+    // A browser's poll fans out once…
+    await admin.post("/api/harness-status", { open: [] });
+    expect(asked).toBe(1);
+    // …and the poll this server answers on another's behalf asks nobody.
+    const res = await admin.post("/api/harness-status", { open: [], own: true });
+    expect(res.status).toBe(200);
+    expect(asked).toBe(1);
+    const body = (await res.json()) as HarnessStatusResponse;
+    expect(body.machines).toEqual([]); // this server's share is the whole answer
   });
 });
 

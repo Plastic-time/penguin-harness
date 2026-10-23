@@ -221,18 +221,20 @@ router
 // Harness status bar (admin)
 // ---------------------------------------------------------------------------------------------
 
-/** The newest rows one answer carries, as the server's own status route caps its list. */
-const STATUS_BAR_ROW_LIMIT = 100;
-
-// The bar's single poll, over the WHOLE harness rather than one Project's list: the counts
-// and the newest rows of every Session the fixtures hold — archived rows, the organization's
-// desk and the CLI runs included — each with its live status, plus the machine's load. The
-// gallery hosts no machine to sample, so the sampler's answer is one fixed snapshot; the
-// rest is the fixtures' own truth, newest first as the server's index orders its rows.
-router.get("/api/harness-status", ({ store }): HarnessStatusResponse => {
+// The bar's single poll: the caller names the Session ids it has opened and the answer
+// carries exactly those rows — wherever in the harness they live — with their live status,
+// plus the harness-wide active count and this machine's load. The gallery hosts no machine
+// to fan out to (`machines` stays empty) and none to sample, so the sampler's answer is one
+// fixed snapshot; the rows are the fixtures' own truth, ordered as the server's index orders
+// its rows.
+router.post("/api/harness-status", ({ store, body }): HarnessStatusResponse => {
+  const named = record(body).open;
+  const open = new Set(
+    (Array.isArray(named) ? named : []).filter((id): id is string => typeof id === "string"),
+  );
   const sessions: HarnessStatusSession[] = [...store.f.sessions]
+    .filter((s) => open.has(s.sessionId))
     .sort(byActivity)
-    .slice(0, STATUS_BAR_ROW_LIMIT)
     .map((s): HarnessStatusSession => ({
       sessionId: s.sessionId,
       projectId: s.projectId,
@@ -242,13 +244,14 @@ router.get("/api/harness-status", ({ store }): HarnessStatusResponse => {
       client: s.client ?? null,
       status: s.status,
       lastActiveAt: s.lastActiveAt,
+      machineId: null,
     }));
   return {
     running: store.f.sessions.filter((s) => s.status !== "idle").length,
-    total: store.f.sessions.length,
     sessions,
     // 23.7% CPU and 10.5 of 32 GiB in use: a machine mid-load, fixed for the demo.
     system: { cpuPercent: 23.7, memoryUsedBytes: 11_274_289_152, memoryTotalBytes: 34_359_738_368 },
+    machines: [],
   };
 });
 

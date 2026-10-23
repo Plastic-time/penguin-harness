@@ -21,6 +21,8 @@ export interface FleetMachineDouble {
 
 export function fakeMachinesNode(
   projectApis: (projectId: string) => FleetMachineDouble[],
+  /** Every machine the server holds out to, whatever the Project — the status bar's fan-out. */
+  connectedApis: () => FleetMachineDouble[] = () => [],
 ): MachinesService {
   const used = {
     start: async () => {},
@@ -29,6 +31,7 @@ export function fakeMachinesNode(
     proxyTarget: async () => null,
     noteApiSeen: () => {},
     projectApis: async (projectId: string) => projectApis(projectId),
+    connectedApis: async () => connectedApis(),
   };
   return new Proxy(used, {
     get: (target, key) =>

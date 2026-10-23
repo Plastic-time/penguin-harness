@@ -323,7 +323,7 @@ export const KEY_RULES: readonly KeyRule[] = [
     kind: "family",
     key: "penguin.statusBar.",
     scope: "install",
-    why: "The status bar's bookkeeping sets of Session ids — opened, marked idle, closed out of the list. The ids are this root's; a new root knows none of them, and a closed id carried over would wrongly subtract from its counts.",
+    why: "The status bar's bookkeeping sets of Session ids — opened, marked idle. The ids are this root's; a new root knows none of them.",
   },
   {
     kind: "family",

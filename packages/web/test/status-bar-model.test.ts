@@ -4,29 +4,35 @@
  *
  * - An opened Session that a poll first reads idle after a running one is marked — once
  *   per transition, only if opened, never re-marked while it still carries the mark.
- * - `all` is the harness's total minus this browser's closed-out ids, never below zero.
- * - The list hides the closed ids and only them.
- * - The three sets persist under their keys, capped, oldest evicted; an unreadable store
+ * - `viewed` is this browser's own opened set — the second count and the list are the same
+ *   bookkeeping, so an x (which removes from the set) is the one thing that lowers it.
+ * - The working machine is the machine of the most recently viewed Session the poll still
+ *   holds a row for.
+ * - The two sets persist under their keys, capped, oldest evicted; an unreadable store
  *   reads as empty and a refused write costs only persistence.
  */
 import { describe, expect, it } from "vitest";
 import type { HarnessStatusSession } from "@prismshadow/penguin-server/api";
 import {
   CAP,
-  CLOSED_KEY,
   IdSet,
   MARKS_KEY,
   OPENED_KEY,
+  byLatest,
   gigabytes,
   loadIdSet,
   marksForTransitions,
   saveIdSet,
-  trackedTotal,
-  visibleRows,
+  viewedCount,
+  workingMachineOf,
 } from "../src/lib/status-bar-model";
 import type { StatusBarStorage } from "../src/lib/status-bar-model";
 
-const row = (sessionId: string, status: HarnessStatusSession["status"]): HarnessStatusSession => ({
+const row = (
+  sessionId: string,
+  status: HarnessStatusSession["status"],
+  over: Partial<HarnessStatusSession> = {},
+): HarnessStatusSession => ({
   sessionId,
   projectId: "p1",
   agentId: "general",
@@ -35,6 +41,8 @@ const row = (sessionId: string, status: HarnessStatusSession["status"]): Harness
   client: "web",
   status,
   lastActiveAt: "2026-10-22T00:00:00.000Z",
+  machineId: null,
+  ...over,
 });
 
 /** The poll-to-poll statuses, typed as the transition rule reads them. */
@@ -77,11 +85,11 @@ describe("status bar bookkeeping sets", () => {
   it("persists under its key and loads back; a malformed value reads as empty", () => {
     const storage: StatusBarStorage = new MemoryStorage();
     const ids = new IdSet(["x", "y"]);
-    saveIdSet(storage, CLOSED_KEY, ids);
-    expect(loadIdSet(storage, CLOSED_KEY).toArray()).toEqual(["x", "y"]);
+    saveIdSet(storage, OPENED_KEY, ids);
+    expect(loadIdSet(storage, OPENED_KEY).toArray()).toEqual(["x", "y"]);
     // A key the bar never wrote, a value some older page left malformed, an empty array:
     // every one reads as a fresh empty set, never as a crash.
-    expect(loadIdSet(storage, OPENED_KEY).toArray()).toEqual([]);
+    expect(loadIdSet(storage, MARKS_KEY).toArray()).toEqual([]);
     storage.setItem(MARKS_KEY, "not json");
     expect(loadIdSet(storage, MARKS_KEY).toArray()).toEqual([]);
     storage.setItem(MARKS_KEY, JSON.stringify([1, null, "ok"]));
@@ -162,19 +170,41 @@ describe("the idle mark (曾打开的 session 转 idle 时标记一次)", () => 
   });
 });
 
-describe("the counts (当 idle 且关闭，则 all 计数减一)", () => {
-  it("all is the harness total minus this browser's closed ids, never below zero", () => {
-    expect(trackedTotal(412, new Set())).toBe(412);
-    expect(trackedTotal(412, new Set(["a", "b", "c"]))).toBe(409);
-    // Every closed id whose Session the server has since deleted still subtracts until it
-    // falls off the cap; the floor keeps the display a number.
-    expect(trackedTotal(2, new Set(["a", "b", "c"]))).toBe(0);
+describe("the counts and the machine (我查看了多少个 · 公司所在 machine)", () => {
+  it("viewed is the opened set's own size — the x is the one thing that lowers it", () => {
+    const opened = new IdSet(["a", "b", "c"]);
+    expect(viewedCount(opened)).toBe(3);
+    opened.delete("b"); // the row's x: 移除即关闭，计数减一
+    expect(viewedCount(opened)).toBe(2);
+    expect(viewedCount(new IdSet())).toBe(0);
   });
 
-  it("the list hides the closed ids and only them", () => {
-    const rows = [row("a", "running"), row("b", "idle"), row("c", "idle")];
-    expect(visibleRows(rows, new Set(["b"]))).toEqual([rows[0], rows[2]]);
-    expect(visibleRows(rows, new Set())).toEqual(rows);
+  it("the working machine is the newest viewed Session's, falling back over the rest", () => {
+    // Newest-first insertion: a was viewed before b, b before c.
+    const opened = new IdSet(["a", "b", "c"]);
+    const rows = [
+      row("a", "idle", { machineId: "m-old" }),
+      row("c", "idle", { machineId: "m-company" }),
+    ];
+    expect(workingMachineOf(opened, rows)).toBe("m-company"); // c, the most recent
+    // The most recent one's machine went quiet: the next viewed one answers.
+    const withoutC = rows.filter((r) => r.sessionId !== "c");
+    expect(workingMachineOf(opened, withoutC)).toBe("m-old");
+    // b holds no row at all: it is skipped, not fatal.
+    expect(workingMachineOf(new IdSet(["b"]), rows)).toBeNull();
+    // Nothing viewed, or nothing answered: this server.
+    expect(workingMachineOf(new IdSet(), rows)).toBeNull();
+  });
+
+  it("the list is newest first, ids breaking ties the server's own order", () => {
+    const rows = [
+      row("old", "idle", { lastActiveAt: "2026-10-21T00:00:00.000Z" }),
+      row("tie-b", "idle", { lastActiveAt: "2026-10-22T00:00:00.000Z" }),
+      row("tie-a", "idle", { lastActiveAt: "2026-10-22T00:00:00.000Z" }),
+      row("new", "running", { lastActiveAt: "2026-10-23T00:00:00.000Z" }),
+    ];
+    expect(byLatest(rows).map((r) => r.sessionId)).toEqual(["new", "tie-b", "tie-a", "old"]);
+    expect(byLatest(rows)).not.toBe(rows); // a copy: the poll's answer is never reordered
   });
 
   it("memory reads in one decimal of GB", () => {

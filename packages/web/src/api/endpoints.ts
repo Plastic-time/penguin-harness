@@ -60,6 +60,7 @@ import type {
   FilesStatResponse,
   FilesWriteRequest,
   GoalResponse,
+  HarnessStatusRequest,
   HarnessStatusResponse,
   InstallResponse,
   MachinesResponse,
@@ -297,10 +298,16 @@ export const putPrefs = (prefs: UiPrefs) =>
 // Harness status bar (admin only) ---------------------------------------------------------
 
 /**
- * The status bar's single poll: harness-wide session counts and list, plus the machine's
- * CPU/memory. 403 for a non-admin — the bar hides itself when it sees that.
+ * The status bar's single poll: the Session ids this browser has opened ride the body, and
+ * the answer carries those rows (wherever in the harness they live) plus the harness-wide
+ * active count and every answering machine's load. 403 for a non-admin — the bar hides
+ * itself when it sees that.
  */
-export const getHarnessStatus = () => apiFetch<HarnessStatusResponse>("/api/harness-status");
+export const getHarnessStatus = (open: readonly string[]) =>
+  apiFetch<HarnessStatusResponse>("/api/harness-status", {
+    method: "POST",
+    body: { open: [...open] } satisfies HarnessStatusRequest,
+  });
 
 // Admin user management (admin only) -----------------------------------------------------
 
@@ -2355,8 +2362,13 @@ const orgBase = (projectId: string, orgId?: string) =>
     orgId === undefined ? "" : `/${encodeURIComponent(orgId)}`
   }`;
 
-export const listOrganizations = (projectId: string) =>
-  apiFetch<OrganizationsResponse>(orgBase(projectId));
+/**
+ * The organizations of one Project — this server's, or a machine's when `machineId` names
+ * one (the status bar's company field reads a machine's own organizations when the Session
+ * it is on lives there; the org pages themselves stay on this server).
+ */
+export const listOrganizations = (projectId: string, machineId?: string | null) =>
+  apiFetch<OrganizationsResponse>(orgBase(projectId), { server: machineId ?? null });
 
 export const createOrganization = (projectId: string, body: OrganizationCreateRequest) =>
   apiFetch<OrganizationDetail>(orgBase(projectId), { method: "POST", body });

@@ -2015,23 +2015,64 @@ export interface HarnessStatusSession {
   client: "web" | "cli" | "org" | "api" | "workbench" | null;
   status: SessionStatus;
   lastActiveAt: string;
+  /**
+   * The machine this Session lives on: null on this server, else that machine's own id. The
+   * answering server stamps its own rows null; the polling server re-stamps every machine's
+   * rows with the machine that answered, so the browser-facing rows always name their owner.
+   */
+  machineId: string | null;
 }
 
-/** Response of GET /api/harness-status — the status bar's single poll (admin-only). */
+/** POST /api/harness-status — the status bar's single poll (admin-only). */
+export interface HarnessStatusRequest {
+  /**
+   * The Session ids this browser has opened — the rows the answer carries, with their live
+   * status, so the bar's list and its idle marks can follow them (its second count is the
+   * client's own count of these). At most 200; an id this harness does not hold is simply
+   * absent from the answer.
+   */
+  open: string[];
+  /**
+   * Answer THIS server's harness alone, without asking the machines it holds connections to.
+   * Set by a server fanning out on another's behalf, so the fan-out never recurses. A
+   * browser's own poll never sets it.
+   */
+  own?: boolean;
+}
+
+/** What the bar's left side shows for one machine; `cpuPercent` is null while the first window is open. */
+export interface HarnessStatusSystem {
+  /** Whole-machine CPU utilization over the last sample window, 0–100 (one decimal); null while measuring. */
+  cpuPercent: number | null;
+  memoryUsedBytes: number;
+  memoryTotalBytes: number;
+}
+
+/** One machine's share of a harness-status answer: its own load reading. */
+export interface HarnessStatusMachine {
+  /** The machine's own id, as its rows carry it. */
+  machineId: string;
+  /** The ssh alias it is reached through — the name a person knows it by. */
+  alias: string;
+  system: HarnessStatusSystem;
+}
+
+/** Response of POST /api/harness-status — the whole harness: this server and every connected machine. */
 export interface HarnessStatusResponse {
-  /** Sessions with a Task in progress or a compaction running, over the WHOLE harness. */
+  /**
+   * Sessions with a Task in progress or a compaction running, summed over this server and
+   * every machine that answered — the bar's first count, 「所有 machine 加起来 active 有多少个」.
+   */
   running: number;
-  /** Every Session the harness holds — all Projects, every client, archived rows included. */
-  total: number;
-  /** The newest Sessions by activity, capped (see the route's limit); the bar's list. */
+  /**
+   * The rows the caller named in `open` that this harness still holds — this server's and
+   * every answering machine's, each stamped with the machine it lives on. The bar's list.
+   */
   sessions: HarnessStatusSession[];
-  /** The machine's load for the bar's left side. */
-  system: {
-    /** Whole-machine CPU utilization over the last sample window, 0–100; null while measuring. */
-    cpuPercent: number | null;
-    memoryUsedBytes: number;
-    memoryTotalBytes: number;
-  };
+  /** This server's own machine load. */
+  system: HarnessStatusSystem;
+  /** Every machine that answered, each with its own load — the bar picks the one it works on. */
+  machines: HarnessStatusMachine[];
 }
 
 /**

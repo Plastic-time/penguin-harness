@@ -1008,6 +1008,40 @@ export class MachinesService {
   }
 
   /**
+   * Every machine this server holds out to — any Project's, since the machine itself is not
+   * Project-scoped — each with a client to its own API while it is connected (null
+   * otherwise). This server is never among them, even where a config lists it back: a
+   * surface reading the WHOLE harness here already holds this server's share locally, and
+   * asking itself over its own tunnel would count it twice. For surfaces that span every
+   * Project's machines at once (the status bar's poll), where `projectApis` serves one
+   * Project's page.
+   */
+  async connectedApis(): Promise<Array<{ machineId: string; alias: string; api: MachineApi | null }>> {
+    const out: Array<{ machineId: string; alias: string; api: MachineApi | null }> = [];
+    for (const machine of this.#allMachines()) {
+      if (machine.local || machine.installed === null || machine.machineId === null) continue;
+      if (machine.machineId === this.#machineId) continue;
+      const row = this.repo.get(machine.id);
+      if (row === null || row.machineId === null) continue;
+      const dial = await this.#dial(machine.id);
+      out.push({
+        machineId: row.machineId,
+        alias: machine.alias,
+        api:
+          dial === null
+            ? null
+            : machineApi(
+                dial.agent,
+                dial.port,
+                dial.cookie,
+                row.adoptedAt === null ? {} : { [ADOPTED_AT_HEADER]: row.adoptedAt },
+              ),
+      });
+    }
+    return out;
+  }
+
+  /**
    * What the proxy needs to forward a request to a machine addressed by its OWN id: a dial
    * through the connection, the port its server is on over there, a session there, and when
    * this server adopted it (sent along, so that machine reads the Sessions it held before then
@@ -3090,6 +3124,7 @@ export abstract class Machines extends Interface<
     | "syncConfigEverywhere"
     | "proxyTarget"
     | "projectApis"
+    | "connectedApis"
     | "jobs"
     | "startUse"
     | "stopUsing"

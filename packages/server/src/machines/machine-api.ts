@@ -16,6 +16,12 @@ export interface MachineApi {
     method: "GET" | "POST" | "PUT" | "PATCH",
     path: string,
     body?: unknown,
+    /**
+     * The request's own deadline. The default below serves the callers that write settings
+     * and read lists; a poll riding this client (the status bar's fan-out) passes a shorter
+     * one so a machine that never answers costs its own deadline and no more.
+     */
+    timeoutMs?: number,
   ): Promise<{ status: number; text: string }>;
   /**
    * A POST whose body is bytes rather than JSON, with a deadline of its own. The hot update
@@ -101,13 +107,13 @@ export function machineApi(
     });
 
   return {
-    request: (method, path, body) =>
+    request: (method, path, body, timeoutMs) =>
       send(
         method,
         path,
         body === undefined ? null : Buffer.from(JSON.stringify(body)),
         "application/json",
-        30_000,
+        timeoutMs ?? 30_000,
       ),
     postBytes: (path, contentType, body, timeoutMs, headers) =>
       send("POST", path, body, contentType, timeoutMs, headers),

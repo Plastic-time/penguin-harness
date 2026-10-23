@@ -1,9 +1,10 @@
 /**
- * The app window: the navigation column beside the main column, and a dock column on the right
- * when the caller has one. It carries the `ui-shell` hook, so a theme may paint a field behind the
- * window, float the main column or rule the columns apart; the columns are its `nav`, `main` and
- * `dock` slots, and the selected row inside the navigation column is the one marked
- * `aria-current="page"`.
+ * The app window: the navigation column beside the main column, a dock column on the right
+ * when the caller has one, and — when the caller has one — a footer band across their whole
+ * underside, the window's own full width. It carries the `ui-shell` hook, so a theme may
+ * paint a field behind the window, float the main column or rule the columns apart; the
+ * columns are its `nav`, `main` and `dock` slots, the footer band its `footer` slot, and the
+ * selected row inside the navigation column is the one marked `aria-current="page"`.
  *
  * The navigation column is hidden below `md` — a phone reaches the same content in a drawer,
  * opened from the `MobileTopBar` at the top of the main column — and folds to the rail's width
@@ -40,6 +41,11 @@ export interface AppShellProps {
   children: ReactNode;
   /** A column docked on the right, when the caller has one. */
   dock?: ReactNode;
+  /**
+   * A bar across the WHOLE bottom of the window — under the navigation, main and dock
+   * columns alike, so a status bar reads as part of the window rather than of one column.
+   */
+  footer?: ReactNode;
   /** Layers mounted beside the columns rather than in one: dialogs, the phone's drawer. */
   overlays?: ReactNode;
 }
@@ -50,6 +56,7 @@ export function AppShell({
   navCollapsed = false,
   children,
   dock,
+  footer,
   overlays,
 }: AppShellProps) {
   const width = navCollapsed ? "w-12" : "w-64 lg:w-72";
@@ -57,23 +64,30 @@ export function AppShell({
     <WallpaperContext.Provider value={background}>
       <div
         data-wallpaper={background === undefined ? undefined : ""}
-        className="ui-shell flex h-full pt-[env(titlebar-area-height,0px)]"
+        className="ui-shell flex h-full flex-col pt-[env(titlebar-area-height,0px)]"
       >
         <WallpaperLayer />
-        <aside
-          data-slot="nav"
-          data-layout-motion
-          className={`hidden shrink-0 overflow-hidden border-r border-line bg-surface-muted md:block ${width}`}
-        >
-          <NavigationBackdrop />
-          <div className={`h-full ${width}`}>{nav}</div>
-        </aside>
-        <div data-slot="main" className="flex min-w-0 flex-1 flex-col">
-          {children}
+        <div className="flex min-h-0 min-w-0 flex-1">
+          <aside
+            data-slot="nav"
+            data-layout-motion
+            className={`hidden shrink-0 overflow-hidden border-r border-line bg-surface-muted md:block ${width}`}
+          >
+            <NavigationBackdrop />
+            <div className={`h-full ${width}`}>{nav}</div>
+          </aside>
+          <div data-slot="main" className="flex min-w-0 flex-1 flex-col">
+            {children}
+          </div>
+          {dock !== undefined && (
+            <div data-slot="dock" className="flex shrink-0 flex-col border-l border-line">
+              {dock}
+            </div>
+          )}
         </div>
-        {dock !== undefined && (
-          <div data-slot="dock" className="flex shrink-0 flex-col border-l border-line">
-            {dock}
+        {footer !== undefined && (
+          <div data-slot="footer" className="flex shrink-0 flex-col">
+            {footer}
           </div>
         )}
         {overlays}
