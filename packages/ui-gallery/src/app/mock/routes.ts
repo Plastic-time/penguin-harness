@@ -54,6 +54,8 @@ import type {
   EndpointModelListResponse,
   FilesStatResponse,
   GoalResponse,
+  HarnessStatusResponse,
+  HarnessStatusSession,
   InstallResponse,
   InstalledPluginsResponse,
   MachinesResponse,
@@ -214,6 +216,41 @@ router
     store.f.prefs = { ...store.f.prefs, ...record(body) };
     return { prefs: store.f.prefs };
   });
+
+// ---------------------------------------------------------------------------------------------
+// Harness status bar (admin)
+// ---------------------------------------------------------------------------------------------
+
+/** The newest rows one answer carries, as the server's own status route caps its list. */
+const STATUS_BAR_ROW_LIMIT = 100;
+
+// The bar's single poll, over the WHOLE harness rather than one Project's list: the counts
+// and the newest rows of every Session the fixtures hold — archived rows, the organization's
+// desk and the CLI runs included — each with its live status, plus the machine's load. The
+// gallery hosts no machine to sample, so the sampler's answer is one fixed snapshot; the
+// rest is the fixtures' own truth, newest first as the server's index orders its rows.
+router.get("/api/harness-status", ({ store }): HarnessStatusResponse => {
+  const sessions: HarnessStatusSession[] = [...store.f.sessions]
+    .sort(byActivity)
+    .slice(0, STATUS_BAR_ROW_LIMIT)
+    .map((s): HarnessStatusSession => ({
+      sessionId: s.sessionId,
+      projectId: s.projectId,
+      agentId: s.agentId,
+      title: s.title ?? null,
+      workspace: s.workspace,
+      client: s.client ?? null,
+      status: s.status,
+      lastActiveAt: s.lastActiveAt,
+    }));
+  return {
+    running: store.f.sessions.filter((s) => s.status !== "idle").length,
+    total: store.f.sessions.length,
+    sessions,
+    // 23.7% CPU and 10.5 of 32 GiB in use: a machine mid-load, fixed for the demo.
+    system: { cpuPercent: 23.7, memoryUsedBytes: 11_274_289_152, memoryTotalBytes: 34_359_738_368 },
+  };
+});
 
 // ---------------------------------------------------------------------------------------------
 // Admin
