@@ -2,31 +2,30 @@
 /**
  * The status bar's own strip of chrome (components/layout/status-bar.tsx): what it shows and
  * what its clicks report. The wired half — polling, storage, the route's opened/marks
- * bookkeeping, the machine-side company fallback, navigation — is thin glue over
- * api/endpoints and lib/status-bar-model, whose counting and marking rules are driven
- * directly in status-bar-model.test.ts; these suites hold the presentational half to its
- * side of that seam, rendering it with props alone:
+ * bookkeeping, navigation, the sidebar locate — is thin glue over api/endpoints,
+ * lib/status-bar-model and lib/sidebar-locate, whose rules are driven directly in their own
+ * suites; these suites hold the presentational half to its side of that seam, rendering it
+ * with props alone:
  *
  * - The machine on the left — the CPU with its measuring read while the first sample window
  *   is still open, memory as `used / total GB`, and "—" for both when the machine being
- *   read did not answer the poll — and the user's three labeled fields on the right:
- *   company and workdir (each its "—" when nothing is open to name), then the counts in the
- *   ticket's own `session: ${active} / ${viewed}` shape.
+ *   read did not answer the poll — and the counts on the right alone, in the ticket's own
+ *   `session: ${active} / ${viewed}` shape: the company and workdir labels were this bar's
+ *   first draft and the review took them off, so neither word is left to say.
  * - `viewed` is the opened set the parent hands down; a removal (the x) is reported and the
  *   next render with the smaller set shows the count that paid for it, while `active` is
  *   untouched by the x: a removal stops the keeping, it does not stop the Session.
- * - The counts button reports the list's toggle (the open state stays the shell's); a row
- *   click opens that Session, a row's x removes that row alone, and an opened Session that
- *   went idle carries its one-time 「已空闲」 badge — on its row and nowhere else.
+ * - The rows are the two halves the poll answered with: a Session the browser opened is the
+ *   user's to keep — its x, and the one-time 「已空闲」 badge an opened Session that went
+ *   idle carries — while an ACTIVE one nobody opened only rides the list while the poll
+ *   still reports it active: no x, no badge, nothing kept, and one click reports the whole
+ *   row (the parent opens it, which moves it into the opened half).
  * - A row whose title was never generated keeps its fallback name; an empty list says so
  *   rather than nothing.
  */
 import { createElement as h } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import type {
-  HarnessStatusSession,
-  HarnessStatusSystem,
-} from "@prismshadow/penguin-server/api";
+import type { HarnessStatusSession, HarnessStatusSystem } from "@prismshadow/penguin-server/api";
 import { StatusBarView } from "../src/components/layout/status-bar";
 import { S } from "../src/lib/strings";
 import { button, click, hasButton, mount, unmountAll } from "./helpers/dom";
@@ -50,14 +49,19 @@ function row(sessionId: string, over: Partial<HarnessStatusSession> = {}): Harne
   };
 }
 
-/** The poll these suites render: two of three opened Sessions running. */
+/** The poll these suites render: two of three opened Sessions running, one active stranger. */
 const rows: HarnessStatusSession[] = [
   row("s1", { title: "Deploy check", status: "running" }),
   row("s2", { title: "Handbook pass", status: "running", client: "cli" }),
   row("s3", { client: "cli" }),
+  row("s4", { title: "Fleet sync", status: "running", client: "org", machineId: "m2" }),
 ];
 
-const system: HarnessStatusSystem = { cpuPercent: 37, memoryUsedBytes: 6.5 * GB, memoryTotalBytes: 16 * GB };
+const system: HarnessStatusSystem = {
+  cpuPercent: 37,
+  memoryUsedBytes: 6.5 * GB,
+  memoryTotalBytes: 16 * GB,
+};
 
 afterEach(unmountAll);
 
@@ -74,8 +78,6 @@ function view(
     rows?: HarnessStatusSession[];
     system?: HarnessStatusSystem | null;
     systemAlias?: string | null;
-    companyName?: string | null;
-    workdir?: string | null;
     marks?: ReadonlySet<string>;
     opened?: ReadonlySet<string>;
     listOpen?: boolean;
@@ -86,8 +88,6 @@ function view(
     rows: list = rows,
     system: machine = system,
     systemAlias = null,
-    companyName = "Penguin",
-    workdir = "/srv/penguin-harness",
     marks = new Set<string>(),
     opened = new Set(["s1", "s2", "s3"]),
     listOpen = false,
@@ -97,8 +97,6 @@ function view(
     rows: list,
     system: machine,
     systemAlias,
-    companyName,
-    workdir,
     marks,
     opened,
     listOpen,
@@ -121,28 +119,24 @@ function rowOf(name: string): HTMLElement {
 const tooltip = (): string =>
   document.querySelector<HTMLElement>("[data-tooltip]")?.getAttribute("data-tooltip") ?? "";
 
-it("shows the machine on the left and the user's three fields on the right", async () => {
+it("shows the machine on the left and the counts alone on the right", async () => {
   const s = spies();
   await bar(s);
   const text = document.body.textContent ?? "";
   expect(text).toContain("CPU 37%");
   expect(text).toContain("内存 6.5 / 16.0 GB");
-  expect(text).toContain("company: Penguin");
-  expect(text).toContain("workdir: penguin-harness");
   expect(button("session: 2 / 3")).toBeInstanceOf(HTMLButtonElement);
+  // The first draft's labels are gone, not blanked: neither word has anything left to say.
+  expect(text).not.toContain("company:");
+  expect(text).not.toContain("workdir:");
 });
 
-it("shows measuring until the CPU's first window closes, and — for fields with nothing to name", async () => {
+it("shows measuring until the CPU's first window closes", async () => {
   const s = spies();
-  await bar(s, {
-    system: { ...system, cpuPercent: null },
-    companyName: null,
-    workdir: null,
-  });
+  await bar(s, { system: { ...system, cpuPercent: null } });
   const text = document.body.textContent ?? "";
   expect(text).toContain(`CPU ${S.statusBar.measuring}`);
-  expect(text).toContain(`${S.statusBar.companyLabel}: —`);
-  expect(text).toContain(`${S.statusBar.workdirLabel}: —`);
+  expect(text).toContain("内存 6.5 / 16.0 GB");
 });
 
 it("names the machine it reads in the tooltips", async () => {
@@ -184,10 +178,10 @@ it("opens a Session from its row and removes it from its own x", async () => {
   const s = spies();
   await bar(s, { listOpen: true });
   await click(button(`Deploy check · ${S.statusBar.runningLabel}`));
-  expect(s.onOpenSession).toHaveBeenCalledExactlyOnceWith("s1");
+  expect(s.onOpenSession).toHaveBeenCalledExactlyOnceWith(rows[0]); // the whole row, not just its id
   // The row whose title was never generated still names itself, and opens like any other.
   await click(button(`${S.company.sessionList.untitledSession} · ${S.statusBar.idleLabel}`));
-  expect(s.onOpenSession).toHaveBeenLastCalledWith("s3");
+  expect(s.onOpenSession).toHaveBeenLastCalledWith(rows[2]);
   await click(
     rowOf(`Handbook pass · ${S.statusBar.runningLabel}`).querySelector(
       `button[aria-label="${S.statusBar.remove}"]`,
@@ -218,6 +212,28 @@ it("the x lowers the viewed count on the next render, and never the active one",
   );
   expect(hasButton(`Handbook pass · ${S.statusBar.runningLabel}`)).toBe(false);
   expect(button("session: 2 / 2")).toBeInstanceOf(HTMLButtonElement);
+});
+
+it("an active row nobody opened rides the list with no x and no mark, and its click reports the whole row", async () => {
+  const s = spies();
+  // The mark set names it all the same: an unopened row is not the bar's to mark.
+  await bar(s, { listOpen: true, marks: new Set(["s4"]) });
+  const stranger = rowOf(`Fleet sync · ${S.statusBar.runningLabel}`);
+  expect(stranger.textContent).not.toContain(S.statusBar.markedIdle);
+  expect(stranger.querySelector(`button[aria-label="${S.statusBar.remove}"]`)).toBeNull();
+  await click(button(`Fleet sync · ${S.statusBar.runningLabel}`));
+  expect(s.onOpenSession).toHaveBeenCalledExactlyOnceWith(rows[3]); // opened now: the parent's opened half
+});
+
+it("a row nobody opened leaves the list when the poll no longer reports it active", async () => {
+  const s = spies();
+  const { rerender } = await bar(s, { listOpen: true });
+  expect(hasButton(`Fleet sync · ${S.statusBar.runningLabel}`)).toBe(true);
+  // The poll's next answer drops it — it was never opened, so nothing keeps it listed — and
+  // the opened half pays nothing for that: its count is the set's own.
+  await rerender(view(s, { listOpen: true, rows: rows.filter((r) => r.sessionId !== "s4") }));
+  expect(hasButton(`Fleet sync · ${S.statusBar.runningLabel}`)).toBe(false);
+  expect(button("session: 2 / 3")).toBeInstanceOf(HTMLButtonElement);
 });
 
 it("carries the one-time idle mark on its row and on no other", async () => {

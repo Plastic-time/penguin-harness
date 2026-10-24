@@ -26,6 +26,8 @@ import type {
   SessionStatus,
 } from "@prismshadow/penguin-server/api";
 import type { SessionActivity } from "../../lib/session-activity";
+import type { SidebarLocateRequest } from "../../lib/sidebar-locate";
+import type { TempSessionEntry } from "./temp-session";
 
 /**
  * Live run statuses by Session id — every `session_state` the user event channel has reported,
@@ -179,6 +181,38 @@ export function orgRowActivity(status: SessionStatus): SessionActivity {
   if (status === "running") return "running";
   if (status === "compacting") return "compacting";
   return null;
+}
+
+/** The company sidebar's answer to one locate ask: which of its two groups holds the Session. */
+export type OrgSessionLocatePlan =
+  /** A desk's own Session: the Desks group unfolds around the row that already stands in it. */
+  | { kind: "desk"; agentId: string }
+  /** A ticket session: it joins the Temporary group, exactly as opening it from its ticket lists it. */
+  | { kind: "ticket"; entry: TempSessionEntry };
+
+/**
+ * How the company sidebar answers a locate ask (lib/sidebar-locate.ts): the desk whose Session
+ * it is — a row the Desks group already stands for, nameable before the chart has loaded —
+ * or, failing that, a ticket entry for an employee the chart names. `desks` is `deskRows`'s
+ * own answer, so it carries every id these caches have learned. Neither holds (a Session of
+ * another organization, or one whose Agent the chart has never heard of) answers null, and the
+ * caller leaves the ask standing: the caches move, and a later render may answer what this
+ * one could not.
+ */
+export function orgSessionLocatePlan(
+  request: Pick<SidebarLocateRequest, "sessionId" | "agentId" | "title">,
+  desks: readonly OrgDeskRow[],
+  chart: OrgChartResponse | null,
+): OrgSessionLocatePlan | null {
+  for (const desk of desks) {
+    if (desk.sessionId === request.sessionId) return { kind: "desk", agentId: desk.agentId };
+  }
+  if (chart === null) return null;
+  if (!chart.employees.some((e) => e.agentId === request.agentId)) return null;
+  return {
+    kind: "ticket",
+    entry: { sessionId: request.sessionId, agentId: request.agentId, title: request.title },
+  };
 }
 
 /**

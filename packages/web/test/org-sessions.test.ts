@@ -12,6 +12,8 @@
  * - The Temporary group's ticket sessions are named from the route, and nothing is named
  *   before it is read.
  * - A row draws the live states and nothing once settled.
+ * - A locate ask from the status bar answers with the desk's row when the Session is one,
+ *   with a ticket entry for an employee the chart names, and with nothing otherwise.
  * - An employee's own state reads every Session the organization attributes to it, running
  *   while any of them runs or compacts, falling back to the snapshots; a budget pause wins.
  * - A Session belongs to an organization by either mark (an empty orgId is none), and the
@@ -29,6 +31,7 @@ import {
   deskRows,
   liveEmployeeStates,
   orgRowActivity,
+  orgSessionLocatePlan,
   ticketSessionTitles,
   withDeskMessagingChannel,
 } from "../src/features/company/org-sessions";
@@ -267,6 +270,45 @@ describe("ticketSessionTitles", () => {
 
   it("names nothing while the route has not been read", () => {
     expect(ticketSessionTitles(undefined).size).toBe(0);
+  });
+});
+
+describe("orgSessionLocatePlan", () => {
+  const ask = (sessionId: string, agentId: string, title = "The ask's own title") => ({
+    sessionId,
+    agentId,
+    title,
+  });
+
+  it("answers a desk's Session with the desk's group, chart or no chart", () => {
+    // The desk rows carry the id even while the chart is still on its way, so a desk the
+    // bar named answers before the roster has loaded.
+    expect(orgSessionLocatePlan(ask("s-ceo", "ceo"), deskRows(chart, sessions), null)).toEqual({
+      kind: "desk",
+      agentId: "ceo",
+    });
+    expect(orgSessionLocatePlan(ask("s-pm", "pm"), deskRows(null, sessions), null)).toEqual({
+      kind: "desk",
+      agentId: "pm",
+    });
+  });
+
+  it("answers a Session of an employee the chart names with a ticket entry", () => {
+    // Not a desk's own Session, but its Agent is on the roster: the Temporary group lists
+    // it exactly as opening it from its ticket would, under the title the bar carried.
+    expect(
+      orgSessionLocatePlan(ask("s-t1", "pm", "Fleet sync"), deskRows(chart, sessions), chart),
+    ).toEqual({
+      kind: "ticket",
+      entry: { sessionId: "s-t1", agentId: "pm", title: "Fleet sync" },
+    });
+  });
+
+  it("answers null for an Agent the chart has never heard of, and for everything while the chart has not been read", () => {
+    const desks = deskRows(chart, sessions);
+    expect(orgSessionLocatePlan(ask("s-other", "stranger"), desks, chart)).toBeNull();
+    // No desk holds it and no chart can name its Agent yet: the ask waits for the caches.
+    expect(orgSessionLocatePlan(ask("s-t1", "pm"), desks, null)).toBeNull();
   });
 });
 

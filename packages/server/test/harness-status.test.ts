@@ -6,8 +6,9 @@
  * - An empty harness answers zero counts, an empty list, an empty `machines`, and the system
  *   shape (memory is a real pair; CPU is null until a second reading exists).
  * - Every row counts whichever Project or client owns it — the request names the ids it
- *   opened, and the answer carries exactly those rows, newest first; malformed ids are
- *   dropped rather than refused, and more than 200 is a 400.
+ *   opened, and the answer carries those rows, newest first, TOGETHER with every active
+ *   Session, opened or not (an idle one nobody opened is the opened set's business alone);
+ *   malformed ids are dropped rather than refused, and more than 200 is a 400.
  * - The fan-out: each connected machine is asked through its own client with `own` set, its
  *   running count is summed in, its rows ride the answer stamped with the machine that
  *   answered, and its load lands in `machines`. A machine that answers 404 (a build from
@@ -42,7 +43,12 @@ describe("harness status bar (POST /api/harness-status)", () => {
   let fleet: FleetMachineDouble[] = [];
 
   beforeAll(async () => {
-    t = await createTestApp({ machines: fakeMachinesNode(() => [], () => fleet) });
+    t = await createTestApp({
+      machines: fakeMachinesNode(
+        () => [],
+        () => fleet,
+      ),
+    });
     admin = apiClient(t.app, (await loginAdmin(t.app)).cookie);
     member = apiClient(t.app, (await provisionUser(t.app, "alice")).cookie);
   });
@@ -123,6 +129,29 @@ describe("harness status bar (POST /api/harness-status)", () => {
     expect(orgRow?.client).toBe("org");
     // The old whole-table total is gone: the second count is the caller's own business.
     expect(body).not.toHaveProperty("total");
+  });
+
+  it("answers an active row nobody opened, and never an idle one nobody opened", async () => {
+    // Two rows the request never named are made running, the rest of the harness stays idle.
+    // The list's active half is the harness's own truth, so the running ones ride the answer
+    // opened or not; an idle one nobody opened is the opened set's business alone, and the
+    // count and the list follow the same rule — they cannot disagree.
+    const statusOf = vi
+      .spyOn(t.deps.manager, "statusOf")
+      .mockImplementation((id: string) =>
+        id === "sess-120" || id === "sess-119" ? "running" : "idle",
+      );
+    try {
+      const res = await admin.post("/api/harness-status", { open: ["sess-150"] });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as HarnessStatusResponse;
+      expect(body.running).toBe(2);
+      // Newest first: the opened row (150) ahead of the two active strangers (120, 119).
+      expect(body.sessions.map((s) => s.sessionId)).toEqual(["sess-150", "sess-120", "sess-119"]);
+      expect(body.sessions.find((s) => s.sessionId === "sess-120")?.status).toBe("running");
+    } finally {
+      statusOf.mockRestore();
+    }
   });
 
   it("drops malformed ids and refuses more than 200", async () => {
@@ -234,7 +263,10 @@ describe("harness status bar (POST /api/harness-status)", () => {
         machineId: "m-null",
         alias: "null-box",
         api: {
-          request: async () => ({ status: 200, text: JSON.stringify(remoteShare({ running: "x" })) }),
+          request: async () => ({
+            status: 200,
+            text: JSON.stringify(remoteShare({ running: "x" })),
+          }),
         },
       },
     ];

@@ -170,7 +170,7 @@ describe("the idle mark (曾打开的 session 转 idle 时标记一次)", () => 
   });
 });
 
-describe("the counts and the machine (我查看了多少个 · 公司所在 machine)", () => {
+describe("the counts and the machine (我查看了多少个 · 最近查看所在 machine)", () => {
   it("viewed is the opened set's own size — the x is the one thing that lowers it", () => {
     const opened = new IdSet(["a", "b", "c"]);
     expect(viewedCount(opened)).toBe(3);

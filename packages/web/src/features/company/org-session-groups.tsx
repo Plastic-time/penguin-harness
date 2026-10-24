@@ -30,8 +30,14 @@
  * run marks come from the session list's live statuses wherever it holds the row — those
  * caches are only re-read on an organization event, and a run ending publishes none
  * (org-sessions.ts).
+ *
+ * The groups also answer the status bar's locate asks (lib/sidebar-locate.ts): a Session
+ * opened from its list makes this column catch up — the desk's group unfolds around its row,
+ * or a ticket session joins the Temporary group exactly as if its ticket had opened it — and
+ * the row is brought into view. An ask none of this holds (another organization's Session)
+ * waits; a later render, once the caches name it, may still answer.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import {
   ActivityIcon,
@@ -61,6 +67,7 @@ import { useProject } from "../../state/project";
 import { useLiveSessionStatuses } from "../../state/sessions";
 import { writeClipboard } from "../../lib/clipboard";
 import { Icon } from "../../components/ui/group-list";
+import { useSidebarLocate } from "../../lib/sidebar-locate";
 import { EmployeeAvatar, FACE_PX } from "./employee-avatar";
 import {
   DESK_ROW_ACTIONS,
@@ -72,11 +79,18 @@ import { Truncated } from "../../components/ui/truncated";
 import { MessagingBindingModal } from "../messaging/messaging-binding-modal";
 import { orgKey } from "./company-nav";
 import { INVALID_ICON } from "./shared";
-import { deskRowLabel, deskRows, orgRowActivity, ticketSessionTitles } from "./org-sessions";
+import {
+  deskRowLabel,
+  deskRows,
+  orgRowActivity,
+  orgSessionLocatePlan,
+  ticketSessionTitles,
+} from "./org-sessions";
 import type { OrgDeskRow } from "./org-sessions";
 import {
   dismissAllTempSessions,
   dismissTempSession,
+  openTempSession,
   tempSessionRows,
   useTempSessions,
 } from "./temp-session";
@@ -215,6 +229,9 @@ function DeskRow({
           type="button"
           aria-current={active ? "true" : undefined}
           disabled={opening}
+          // The row's Session id, for a locate ask's scrollIntoView (lib/sidebar-locate.ts);
+          // absent while no cache has named the desk's Session yet.
+          data-session-id={sessionId}
           // Inert rather than disabled: the row stays in the tab order, and its name says why.
           {...(missing ? { "aria-disabled": true } : {})}
           data-tooltip={row.jobTitle !== "" ? `${row.name} · ${row.jobTitle}` : row.name}
@@ -374,6 +391,8 @@ function TempRow({
           aria-current={row.active ? "true" : undefined}
           data-tooltip={`${row.name} · ${row.title}`}
           aria-label={label}
+          // The row's Session id, for a locate ask's scrollIntoView (lib/sidebar-locate.ts).
+          data-session-id={row.sessionId}
           onClick={onOpen}
           className={rowButton(row.active)}
         >
@@ -467,6 +486,44 @@ export function OrgSessionGroups({
   const desks = deskRows(company.orgChart, orgSessions, live);
   const { openDesk, openSession, opening } = useOpenDesk(projectId, orgId, onNavigate);
   const tempRows = useTempRows(projectId, orgId, desks, activeSessionId);
+  // The status bar's locate ask, answered by this organization's groups (the header's last
+  // paragraph). The plan may need a cache this render does not hold yet — the chart can
+  // still be loading — so an ask that answers null is left standing rather than spent, and
+  // a later render answers it.
+  const locate = useSidebarLocate();
+  /** The ask this sidebar has already answered: a re-render of the same ask acts once. */
+  const handledLocate = useRef(0);
+  /** The ask whose row was last brought into view: it scrolls once, not on every render. */
+  const scrolledLocate = useRef(0);
+  useEffect(() => {
+    if (locate === null) return;
+    const plan = orgSessionLocatePlan(locate, desks, company.orgChart);
+    if (plan === null) return; // not this organization's, or not nameable yet: the ask waits
+    if (handledLocate.current === locate.nonce) return;
+    handledLocate.current = locate.nonce;
+    if (plan.kind === "desk") {
+      setDesksOpen(true);
+      return;
+    }
+    openTempSession(
+      user?.userId ?? null,
+      projectId,
+      orgId,
+      plan.entry,
+      desks.map((d) => d.sessionId),
+    );
+    setTempOpen(true);
+  }, [locate, desks, company.orgChart, projectId, orgId, user]);
+  // The scroll that finishes the ask: the row has to be seen, not merely listed. It runs
+  // again as the unfold and the new entry land — so it finds the row however late it
+  // mounts — and never again after, the nonce recording the ask it last brought into view.
+  useEffect(() => {
+    if (locate === null || scrolledLocate.current === locate.nonce) return;
+    const row = document.querySelector(`[data-session-id="${locate.sessionId}"]`);
+    if (row === null) return;
+    scrolledLocate.current = locate.nonce;
+    row.scrollIntoView({ block: "nearest" });
+  }, [locate, desksOpen, tempOpen, tempRows]);
   // Nothing has been read for this organization yet: a skeleton, not an "empty" claim.
   const chartFailed = company.orgChart === null && company.orgChartError !== null;
   const loading = company.orgChart === null && orgSessions === undefined && !chartFailed;

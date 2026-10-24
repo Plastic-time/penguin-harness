@@ -97,6 +97,19 @@ describe("the mocked API", () => {
     await expect(api.getSession("nope")).rejects.toMatchObject({ status: 404, code: "not_found" });
   });
 
+  it("answers the status bar with the opened rows and every active one, opened or not", async () => {
+    resetStore({ lang: "en", signedIn: true });
+    // The bar's two halves in one answer: a Session the browser has opened stays listed
+    // whatever its status, an active one nobody opened rides the answer too — the list the
+    // counts open — and an idle one nobody opened is not the bar's business.
+    const answer = await api.getHarnessStatus([IDS.sessions.done]);
+    const listed = answer.sessions.map((s) => s.sessionId);
+    expect(listed).toContain(IDS.sessions.done); // opened and idle: kept
+    expect(listed).toContain(IDS.sessions.approval); // active, never opened: the active half
+    expect(listed).not.toContain(IDS.sessions.older[0]); // idle, never opened: dropped
+    expect(answer.running).toBe(4); // every active Session, fixtures-wide
+  });
+
   it("pages a Session list per category with totals, own rows only", async () => {
     const store = resetStore({ lang: "en", signedIn: true });
     const project = store.f.project.projectId;

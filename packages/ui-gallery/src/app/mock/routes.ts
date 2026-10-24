@@ -222,18 +222,19 @@ router
 // ---------------------------------------------------------------------------------------------
 
 // The bar's single poll: the caller names the Session ids it has opened and the answer
-// carries exactly those rows — wherever in the harness they live — with their live status,
-// plus the harness-wide active count and this machine's load. The gallery hosts no machine
-// to fan out to (`machines` stays empty) and none to sample, so the sampler's answer is one
-// fixed snapshot; the rows are the fixtures' own truth, ordered as the server's index orders
-// its rows.
+// carries those rows — wherever in the harness they live — with their live status, TOGETHER
+// with every active Session the fixtures hold (the bar's active half lists whatever the poll
+// still reports running, opened or not), plus the harness-wide active count and this
+// machine's load. The gallery hosts no machine to fan out to (`machines` stays empty) and
+// none to sample, so the sampler's answer is one fixed snapshot; the rows are the fixtures'
+// own truth, ordered as the server's index orders its rows.
 router.post("/api/harness-status", ({ store, body }): HarnessStatusResponse => {
   const named = record(body).open;
   const open = new Set(
     (Array.isArray(named) ? named : []).filter((id): id is string => typeof id === "string"),
   );
   const sessions: HarnessStatusSession[] = [...store.f.sessions]
-    .filter((s) => open.has(s.sessionId))
+    .filter((s) => open.has(s.sessionId) || s.status !== "idle")
     .sort(byActivity)
     .map((s): HarnessStatusSession => ({
       sessionId: s.sessionId,

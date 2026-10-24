@@ -34,6 +34,11 @@
  * development list is the user's OWN conversations only: an organization's desk, ticket and
  * sub-sessions are left out of its fetches and totals by the server, and out of every group
  * and bucket here should one still arrive.
+ * The list answers the status bar's locate asks (lib/sidebar-locate.ts): a conversation of
+ * this list opened from the bar's sessions makes it catch up — the group it lives in unfolds,
+ * its page shows, its row is brought into view. An ask for a conversation this list does not
+ * hold (an organization's, another organization's, one still loading) waits, and a later
+ * render answers it once its row is here.
  * Desktop keeps it pinned as the left column; mobile puts the whole thing in a drawer.
  * New chats always enter draft state (/chat/new; a group header's "+" names its group's Agent or
  * Workspace in route state): Model / Workspace / approval mode are all chosen on the draft input
@@ -123,10 +128,13 @@ import {
   revealPlan,
   revealStep,
   sectionWindow,
+  timeBucketOf,
+  timeGroupKey,
   workspaceGroupKey,
   workspaceLabel,
 } from "../../lib/session-grouping";
 import { machineForSession } from "../../lib/session-machines";
+import { useSidebarLocate } from "../../lib/sidebar-locate";
 import { backgroundSourceMark } from "../../lib/session-source-mark";
 import { nameOnMachine } from "../../lib/workspace-machines";
 import {
@@ -785,6 +793,73 @@ export function Sidebar({
   const groupPageTotal = groupPageCount(pagedGroupTotal);
   /** The page actually on screen: the stored one, pinned inside the pages that still exist. */
   const shownGroupPage = clampGroupPage(groupPage, pagedGroupTotal);
+
+  /**
+   * The status bar's locate asks (lib/sidebar-locate.ts): a conversation of this list opened
+   * from the bar's sessions makes this column catch up. The ask is answered on the list's own
+   * terms — the group the row lives in unfolds (persisted exactly as the reader's own toggle
+   * would), the group's page shows, and the row is brought into view. An ask this list
+   * cannot answer — an organization's Session, another Project's, or a row still on its way
+   * — is left standing rather than spent, so the render that finally holds the row answers
+   * it. Inert while searching, like the collapse toggle: groups force-open then, and the ask
+   * answers once the query clears.
+   */
+  const locate = useSidebarLocate();
+  /** The ask this list has already answered: a re-render of the same ask acts once. */
+  const handledLocate = useRef(0);
+  /** The ask whose row was last brought into view: it scrolls once, not on every render. */
+  const scrolledLocate = useRef(0);
+  useEffect(() => {
+    if (inCompany || searching || locate === null) return;
+    if (handledLocate.current === locate.nonce) return;
+    const row = sessions.find((s) => s.sessionId === locate.sessionId);
+    if (row === undefined) return; // not one of this list's rows (yet?): the ask waits
+    handledLocate.current = locate.nonce;
+    const key =
+      groupMode === "workspace"
+        ? workspaceGroupKey(row.workspace, machineForSession(row.sessionId))
+        : groupMode === "agent"
+          ? row.agentId
+          : timeGroupKey(timeBucketOf(row.lastActiveAt, Date.now()));
+    if (collapsedGroups.has(key)) {
+      // The unfold the reader's own toggle would make, persisted the same way, so the locate
+      // lands where a click would.
+      const next = new Set(collapsedGroups);
+      next.delete(key);
+      setCollapsedGroups(next);
+      saveGroupSet(collapseStoreKey, next);
+    }
+    // The group's page: a row on a page that is not shown does nobody any good.
+    const page =
+      groupMode === "agent"
+        ? groupPageOf(orderedAgents.findIndex((a) => a.agentId === row.agentId))
+        : groupMode === "workspace"
+          ? groupPageOf(orderedWorkspaceGroups.findIndex((g) => g.key === key))
+          : -1; // time mode never paginates
+    if (page >= 0 && page !== shownGroupPage) setGroupPage(page);
+  }, [
+    locate,
+    inCompany,
+    searching,
+    sessions,
+    groupMode,
+    collapsedGroups,
+    orderedAgents,
+    orderedWorkspaceGroups,
+    shownGroupPage,
+    collapseStoreKey,
+  ]);
+  // The scroll that finishes the ask: it runs again as the unfold and the page land — so it
+  // finds the row however late it mounts — and never again after, the nonce recording the ask
+  // it last brought into view.
+  useEffect(() => {
+    if (inCompany || searching || locate === null) return;
+    if (scrolledLocate.current === locate.nonce) return;
+    const el = document.querySelector(`[data-session-id="${locate.sessionId}"]`);
+    if (el === null) return;
+    scrolledLocate.current = locate.nonce;
+    el.scrollIntoView({ block: "nearest" });
+  }, [locate, inCompany, searching, collapsedGroups, sessions, groupPage]);
 
   /** The groups to render: this page's slice, or every match while searching. */
   const groupsOnPage = <T,>(groups: T[]): T[] =>

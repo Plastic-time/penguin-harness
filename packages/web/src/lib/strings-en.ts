@@ -6035,17 +6035,12 @@ Scenarios:
     memoryOf: (used: string, total: string): string => `${used} / ${total} GB`,
     cpuTooltip: "Whole-machine CPU utilization of the machine you are working on",
     memoryTooltip: "Used / total memory of the machine you are working on",
-    /** The bar's right side — the three labeled fields, in the order the bar shows them. */
-    companyLabel: "company",
-    workdirLabel: "workdir",
-    companyTooltip: "The organization currently open",
-    workdirTooltip: "The workspace of the Session you are on",
     /** The session counts. The format is the user's own and stays identical in both languages. */
     sessions: (running: number, all: number): string => `session: ${running} / ${all}`,
     sessionsTooltip: "Running across every machine / the Sessions you have opened",
     /** The list the counts open. */
-    listTitle: "Sessions you have opened",
-    listEmpty: "You have not opened a Session yet",
+    listTitle: "Running / viewed Sessions",
+    listEmpty: "No running or viewed Sessions right now",
     /** The one-time mark a Session the user has opened carries once it goes idle. */
     markedIdle: "Went idle",
     runningLabel: "Running",

@@ -2,28 +2,32 @@
  * The status bar across the bottom of the shell — this round a fixed part of the Web App's
  * layout (a plugin's own bar can follow later; the seam is this one component).
  *
- * The admin's own view of their harness: the machine they work on on the left, the harness
- * on the right. One poll (POST /api/harness-status, carrying the Session ids this browser
- * has opened) repaints everything — the load of the machine the most recently viewed
+ * The admin's own view of their harness: the machine they work on on the left, the session
+ * counts on the right. One poll (POST /api/harness-status, carrying the Session ids this
+ * browser has opened) repaints everything — the load of the machine the most recently viewed
  * Session lives on (this server's when nothing viewed is in the answer), the harness-wide
- * active count summed over every machine that answered, and the rows of exactly the Sessions
- * the user has opened, wherever in the harness they live. The route answers 403 for a
- * non-admin, and the bar treats that as "not for this user" and unmounts itself.
+ * active count summed over every machine that answered, and the rows of the Sessions the user
+ * has opened TOGETHER with every active Session in the harness, wherever they live. The route
+ * answers 403 for a non-admin, and the bar treats that as "not for this user" and unmounts
+ * itself.
  *
  * Collection is deliberately dull: one request every 10 seconds, stopped while the tab is
  * hidden and resumed (with an immediate poll) when it shows again, and re-asked the moment
- * the shell moves onto another Session — the row it lands on is the one the bar's workdir
- * and machine read. Nothing is sampled on the main thread beyond painting the numbers; the
- * CPU's window is measured server-side.
+ * the shell moves onto another Session — the row it lands on is the one the bar's machine
+ * read. Nothing is sampled on the main thread beyond painting the numbers; the CPU's window
+ * is measured server-side.
  *
  * Counting and marking follow the ticket's own words, spelled out in lib/status-bar-model:
  * `session: ${active} / ${viewed}` — active is the server's live truth over the whole
  * harness, viewed is this browser's own opened set, and a row's x is the 「移除即关闭」 that
  * makes that count go down by one; a Session the user has opened carries a one-time
  * 「已空闲」 mark from the poll that first sees it idle after a running one, until they look
- * at it again.
+ * at it again. A row the user has NOT opened is the active half's own: it rides the list only
+ * while the poll still reports it active — no x, no mark, nothing kept — and one click moves
+ * it into the opened half with every current semantic (the sidebar is asked to locate it
+ * too, so the left column follows the jump: its desk's row, or its conversation's).
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMatch, useNavigate } from "react-router";
 import { Badge, CloseIcon, Dropdown } from "@prismshadow/penguin-ui";
 import type {
@@ -49,11 +53,9 @@ import {
   viewedCount,
   workingMachineOf,
 } from "../../lib/status-bar-model";
+import { locateSessionInSidebar } from "../../lib/sidebar-locate";
 import { rememberSessionMachine } from "../../lib/session-machines";
 import { toneDot } from "../../lib/tone";
-import { useCompany } from "../../state/company";
-import { useSessions } from "../../state/sessions";
-import { parseOrgKey } from "../../features/company/company-nav";
 
 /** One poll every 10 seconds: a status bar cadence, not a monitoring one. */
 const POLL_MS = 10_000;
@@ -63,8 +65,6 @@ const notASession = (id: string): boolean => id === "new" || id.startsWith("draf
 
 export function StatusBar() {
   const navigate = useNavigate();
-  const company = useCompany();
-  const { sessions } = useSessions();
   /** The Session the shell is on, if it is on one (the draft page's ids are not Sessions). */
   const routeSessionId = useMatch("/chat/:sessionId")?.params.sessionId ?? null;
 
@@ -174,65 +174,18 @@ export function StatusBar() {
     setPollNonce((v) => v + 1); // ask again now: the row leaves the list in this breath
   };
 
-  // The right side's first two fields. The workdir: the chat's own row first — the poll's
-  // rows span every machine, so a Session that lives on one resolves here — then the
-  // shell's session store; null when there is nothing to name. The company: the
-  // organization the shell has open, and when the shell's own state names none, the
-  // machine the current Session lives on is asked for the organizations of that row's
-  // Project — one organization there is the company whose Session this is.
-  const currentRow = useMemo(
-    () => data?.sessions.find((s) => s.sessionId === routeSessionId) ?? null,
-    [data, routeSessionId],
-  );
-  const workdir = useMemo(() => {
-    const id = routeSessionId;
-    if (id === null || notASession(id)) return null;
-    return currentRow?.workspace ?? sessions.find((s) => s.sessionId === id)?.workspace ?? null;
-  }, [routeSessionId, currentRow, sessions]);
-  const org = useMemo(() => {
-    const parsed = parseOrgKey(company.currentOrgKey ?? company.lastOrgKey);
-    if (parsed === null) return null;
-    return (
-      company.organizations.find(
-        (o) => o.projectId === parsed.projectId && o.orgId === parsed.orgId,
-      ) ?? null
-    );
-  }, [company.currentOrgKey, company.lastOrgKey, company.organizations]);
-
-  /** The machine-side company answer, keyed by the (machine, Project) it was read for. */
-  const [machineCompany, setMachineCompany] = useState<{ key: string; name: string | null } | null>(
-    null,
-  );
-  const companyCache = useRef(new Map<string, Promise<string | null>>());
-  const companyKey =
-    currentRow !== null && currentRow.machineId !== null
-      ? `${currentRow.machineId}/${currentRow.projectId}`
-      : null;
-  useEffect(() => {
-    if (org !== null || companyKey === null) return;
-    let read = companyCache.current.get(companyKey);
-    if (read === undefined) {
-      const [machineId, projectId] = companyKey.split("/");
-      read = api
-        .listOrganizations(projectId!, machineId!)
-        .then((res) =>
-          res.organizations.length === 1 ? (res.organizations[0]!.name ?? null) : null,
-        )
-        .catch(() => null); // A machine that cannot be asked names no company; its load says so.
-      companyCache.current.set(companyKey, read);
-    }
-    let cancelled = false;
-    void read.then((name) => {
-      if (!cancelled) setMachineCompany({ key: companyKey, name });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [org, companyKey]);
-  const companyName =
-    org?.name ??
-    (machineCompany !== null && machineCompany.key === companyKey ? machineCompany.name : null) ??
-    null;
+  /**
+   * A row's click: open the Session, and ask the sidebar to catch up — the left column
+   * locates what the jump landed on (its desk's row in company mode, its conversation's in
+   * development mode), so the two halves of the shell never disagree about where the user
+   * is. The row itself carries what the locate needs: the employee's Agent for a company
+   * Session, and a title to fall back on.
+   */
+  const open = (row: HarnessStatusSession) => {
+    setListOpen(false);
+    navigate(`/chat/${row.sessionId}`);
+    locateSessionInSidebar(row.sessionId, row.agentId, row.title);
+  };
 
   if (data === null) return null; // nothing polled yet, or a 403: no bar
 
@@ -250,17 +203,12 @@ export function StatusBar() {
       running={data.running}
       rows={data.sessions}
       system={system}
-      systemAlias={working === null ? null : workingEntry?.alias ?? null}
-      companyName={companyName}
-      workdir={workdir}
+      systemAlias={working === null ? null : (workingEntry?.alias ?? null)}
       marks={marks.current!}
       opened={opened.current!}
       listOpen={listOpen}
       onListOpen={setListOpen}
-      onOpenSession={(sessionId) => {
-        setListOpen(false);
-        navigate(`/chat/${sessionId}`);
-      }}
+      onOpenSession={open}
       onRemove={remove}
     />
   );
@@ -272,8 +220,6 @@ export function StatusBarView({
   rows,
   system,
   systemAlias,
-  companyName,
-  workdir,
   marks,
   opened,
   listOpen,
@@ -283,26 +229,24 @@ export function StatusBarView({
 }: {
   /** The harness-wide active count: every machine that answered, summed. */
   running: number;
-  /** The opened Sessions this poll still holds; the view orders them newest first. */
+  /** The poll's rows: the opened Sessions it still holds plus every active one — the list. */
   rows: readonly HarnessStatusSession[];
   /** The machine the left side reads; null when that machine did not answer this poll. */
   system: HarnessStatusSystem | null;
   /** The alias of the machine the left side reads; null when it is this server. */
   systemAlias: string | null;
-  companyName: string | null;
-  /** The Session's full workspace path; the bar shows its last segment, the tooltip the path. */
-  workdir: string | null;
   marks: ReadonlySet<string>;
   /** The Sessions this browser has opened and still keeps — the second count. */
   opened: ReadonlySet<string>;
   listOpen: boolean;
   /** The list's open state, handed both ways (the trigger toggles, the shell closes). */
   onListOpen: (open: boolean) => void;
-  onOpenSession: (sessionId: string) => void;
+  /** Opens the row's Session — the whole row, so the parent can hand the sidebar what it is. */
+  onOpenSession: (row: HarnessStatusSession) => void;
   onRemove: (sessionId: string) => void;
 }) {
   // The counts: active is the harness's live truth over every machine; viewed is this
-  // browser's own opened set. The list shows exactly that set's rows.
+  // browser's own opened set. The list shows both halves' rows.
   const all = viewedCount(opened);
   const list = byLatest(rows);
   const machineSuffix = systemAlias === null ? "" : `: ${systemAlias}`;
@@ -341,75 +285,64 @@ export function StatusBarView({
               )}
         </span>
       </div>
-      {/* Right: the user's own three fields — the company currently open, the workdir of
-          the Session the shell is on, and the session counts whose click opens the list. */}
-      <div className="flex min-w-0 items-center gap-4">
-        <span
-          className="max-w-48 truncate"
-          data-tooltip={
-            companyName === null
-              ? S.statusBar.companyTooltip
-              : `${S.statusBar.companyTooltip}: ${companyName}`
-          }
-        >
-          {S.statusBar.companyLabel}: {companyName ?? "—"}
-        </span>
-        <span
-          className="max-w-64 truncate"
-          data-tooltip={workdir === null ? S.statusBar.workdirTooltip : workdir}
-        >
-          {S.statusBar.workdirLabel}: {workdir === null ? "—" : workspaceLabel(workdir)}
-        </span>
-        <Dropdown
-          open={listOpen}
-          setOpen={onListOpen}
-          portal={{ direction: "up", align: "right" }}
-          button={
-            <button
-              type="button"
-              aria-label={S.statusBar.sessionsTooltip}
-              aria-expanded={listOpen}
-              data-tooltip={S.statusBar.sessionsTooltip}
-              onClick={() => onListOpen(!listOpen)}
-              className="whitespace-nowrap rounded px-1 font-medium text-fg transition-colors hover:bg-fg/5"
-            >
-              {S.statusBar.sessions(running, all)}
-            </button>
-          }
-          menuClass="w-80"
-        >
-          <div className="max-h-[60vh] overflow-y-auto">
-            <p className="px-3 py-1.5 text-xs font-medium text-fg">{S.statusBar.listTitle}</p>
-            {list.length === 0 ? (
-              <p className="px-3 py-3 text-xs text-fg-muted">{S.statusBar.listEmpty}</p>
-            ) : (
-              list.map((row) => {
-                const marked = marks.has(row.sessionId);
-                const runningRow = row.status !== "idle";
-                const title = row.title ?? S.company.sessionList.untitledSession;
-                const statusWord = runningRow ? S.statusBar.runningLabel : S.statusBar.idleLabel;
-                return (
-                  <div key={row.sessionId} className="group flex items-center gap-2 px-2 py-1.5">
-                    <span
-                      aria-hidden
-                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                        runningRow ? toneDot.busy : toneDot.muted
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      className="min-w-0 flex-1 truncate text-left text-xs text-fg hover:underline"
-                      aria-label={`${title} · ${statusWord}`}
-                      onClick={() => onOpenSession(row.sessionId)}
-                    >
-                      {title}
-                      <span className="ml-2 text-fg-muted">{workspaceLabel(row.workspace)}</span>
-                    </button>
-                    {marked && (
-                      <Badge tone="attention" variant="soft">
-                        {S.statusBar.markedIdle}
-                      </Badge>
-                    )}
+      {/* Right: the session counts alone — the company and workdir labels were this bar's
+          first draft and the review took them off. The counts' click opens the list. */}
+      <Dropdown
+        open={listOpen}
+        setOpen={onListOpen}
+        portal={{ direction: "up", align: "right" }}
+        button={
+          <button
+            type="button"
+            aria-label={S.statusBar.sessionsTooltip}
+            aria-expanded={listOpen}
+            data-tooltip={S.statusBar.sessionsTooltip}
+            onClick={() => onListOpen(!listOpen)}
+            className="whitespace-nowrap rounded px-1 font-medium text-fg transition-colors hover:bg-fg/5"
+          >
+            {S.statusBar.sessions(running, all)}
+          </button>
+        }
+        menuClass="w-80"
+      >
+        <div className="max-h-[60vh] overflow-y-auto">
+          <p className="px-3 py-1.5 text-xs font-medium text-fg">{S.statusBar.listTitle}</p>
+          {list.length === 0 ? (
+            <p className="px-3 py-3 text-xs text-fg-muted">{S.statusBar.listEmpty}</p>
+          ) : (
+            list.map((row) => {
+              // The row's half: a Session the user has opened is theirs to keep — mark and
+              // x both — while an active one they never opened only rides the list while
+              // the poll still reports it active; nothing about it is kept, so it gets
+              // neither, and one click (which opens it) moves it into the opened half.
+              const kept = opened.has(row.sessionId);
+              const marked = kept && marks.has(row.sessionId);
+              const runningRow = row.status !== "idle";
+              const title = row.title ?? S.company.sessionList.untitledSession;
+              const statusWord = runningRow ? S.statusBar.runningLabel : S.statusBar.idleLabel;
+              return (
+                <div key={row.sessionId} className="group flex items-center gap-2 px-2 py-1.5">
+                  <span
+                    aria-hidden
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                      runningRow ? toneDot.busy : toneDot.muted
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 truncate text-left text-xs text-fg hover:underline"
+                    aria-label={`${title} · ${statusWord}`}
+                    onClick={() => onOpenSession(row)}
+                  >
+                    {title}
+                    <span className="ml-2 text-fg-muted">{workspaceLabel(row.workspace)}</span>
+                  </button>
+                  {marked && (
+                    <Badge tone="attention" variant="soft">
+                      {S.statusBar.markedIdle}
+                    </Badge>
+                  )}
+                  {kept && (
                     <button
                       type="button"
                       className="shrink-0 rounded p-1 text-fg-muted opacity-0 transition-opacity hover:bg-fg/5 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
@@ -419,13 +352,13 @@ export function StatusBarView({
                     >
                       <CloseIcon size={12} />
                     </button>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </Dropdown>
-      </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </Dropdown>
     </footer>
   );
 }

@@ -4,10 +4,13 @@
  * stays hidden).
  *
  * One request carries everything the bar repaints with. The body names the Session ids this
- * browser has OPENED — the answer's rows are exactly those the harness still holds, with
- * their live run status, so the bar's list and its idle marks can follow them wherever they
- * live. The counts stay over the WHOLE harness either way: `running` is every Session with a
- * Task in progress or a compaction running, all Projects and clients alike.
+ * browser has OPENED — the answer's rows are those the harness still holds, with their live run
+ * status, so the bar's list and its idle marks can follow them wherever they live — TOGETHER
+ * with every ACTIVE session, opened or not: the list the counts open shows the sessions behind
+ * the first number, and a row the user never opened rides the answer only while it is active
+ * (an idle one is the opened set's business alone, so it drops out at the next poll). The
+ * counts stay over the WHOLE harness either way: `running` is every Session with a Task in
+ * progress or a compaction running, all Projects and clients alike.
  *
  * The harness the answer spans is this server AND the machines it holds connections to: a
  * machine asked here answers through its own copy of this route with `own` set — its own
@@ -65,7 +68,9 @@ function readOpenIds(body: Record<string, unknown>): string[] {
   if (raw.length > STATUS_BAR_OPEN_LIMIT) {
     throw badRequest(`open must hold at most ${STATUS_BAR_OPEN_LIMIT} Session ids.`);
   }
-  return raw.filter((id): id is string => typeof id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(id));
+  return raw.filter(
+    (id): id is string => typeof id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(id),
+  );
 }
 
 /**
@@ -157,7 +162,12 @@ function systemOf(raw: unknown): HarnessStatusSystem | null {
   };
 }
 
-/** This server's own share: every Session it holds, counted for `running`, and the opened ids' rows. */
+/**
+ * This server's own share: every Session it holds, counted for `running`; the listed rows are
+ * the opened ids this server still holds — whatever their status — plus every ACTIVE one,
+ * opened or not, because the active half of the list is the harness's own business, not the
+ * browser's bookkeeping.
+ */
 function localShare(
   deps: HarnessStatusRouteDeps,
   open: ReadonlySet<string>,
@@ -170,7 +180,7 @@ function localShare(
     // loaded; a running one always is), so statusOf answers the truth for every row.
     const status = deps.manager.statusOf(row.sessionId);
     if (status !== "idle") running++;
-    if (open.has(row.sessionId)) {
+    if (open.has(row.sessionId) || status !== "idle") {
       sessions.push({
         sessionId: row.sessionId,
         projectId: row.projectId,

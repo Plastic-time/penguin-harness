@@ -6249,17 +6249,12 @@ Benchmark：
     memoryOf: (used: string, total: string): string => `${used} / ${total} GB`,
     cpuTooltip: "当前工作所在 machine 的整机 CPU 利用率",
     memoryTooltip: "当前工作所在 machine 的已用 / 总内存",
-    /** The bar's right side — the three labeled fields, in the order the bar shows them. */
-    companyLabel: "company",
-    workdirLabel: "workdir",
-    companyTooltip: "当前打开的组织",
-    workdirTooltip: "当前会话的工作目录（Workspace）",
     /** The session counts. The format is the user's own and stays identical in both languages. */
     sessions: (running: number, all: number): string => `session: ${running} / ${all}`,
     sessionsTooltip: "所有 machine 当前运行中 / 我查看过的",
     /** The list the counts open. */
-    listTitle: "我查看过的 Session",
-    listEmpty: "还没有查看过任何 Session",
+    listTitle: "运行中 / 我查看过的 Session",
+    listEmpty: "当前没有运行中或查看过的 Session",
     /** The one-time mark a Session the user has opened carries once it goes idle. */
     markedIdle: "已空闲",
     runningLabel: "运行中",
