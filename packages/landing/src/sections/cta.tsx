@@ -14,7 +14,8 @@ export function Cta() {
         <h2 className="text-2xl font-semibold tracking-tight text-balance break-keep [overflow-wrap:break-word] sm:text-3xl">
           {S.cta.title}
         </h2>
-        <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-pretty text-gray-600 dark:text-gray-400">
+        {/* keep-all, as the heading: a CJK line wraps at its punctuation, never inside a word. */}
+        <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-pretty break-keep text-gray-600 [overflow-wrap:break-word] dark:text-gray-400">
           {S.cta.subtitle}
         </p>
         <div className="mt-7 flex flex-wrap items-center justify-center gap-3">

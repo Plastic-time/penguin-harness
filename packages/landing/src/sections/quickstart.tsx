@@ -40,7 +40,8 @@ function NumberedItem({ index, children }: { index: number; children: ReactNode 
       <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gray-900 text-[11px] font-semibold text-white dark:bg-gray-100 dark:text-gray-900">
         {index}
       </span>
-      <span>{children}</span>
+      {/* keep-all: a CJK step wraps at its spaces and punctuation, never inside a word. */}
+      <span className="min-w-0 break-keep [overflow-wrap:break-word]">{children}</span>
     </li>
   );
 }
