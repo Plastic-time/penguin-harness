@@ -1,4 +1,4 @@
-PenguinHarness 0.2.17 rebuilds the Agent API around the Session's own records: `/api/amsp/v1` now streams what the Trace stores, and the `@prismshadow/amsp` SDK reads it. Replies can carry charts and full forms, the Trace panel is rebuilt, and a conversation on a remote machine reads that machine's Agents, Sessions, memory and models. On Windows, the desktop app of 0.2.16 or earlier cannot update itself to this release: install it by hand once.
+PenguinHarness 0.2.17 rebuilds the Agent API around the Session's own records: `/api/amsp/v1` now streams what the Trace stores, and the `@prismshadow/amsp` SDK reads it. Replies can carry charts and full forms, the Trace panel is rebuilt, and a conversation on a remote machine reads that machine's agents, Sessions, memory and models. On Windows, the desktop app of 0.2.16 or earlier cannot update itself to this release: install it by hand once.
 
 ## Install
 
@@ -77,24 +77,24 @@ A command that exits non-zero or is killed by a signal is now an ordinary comple
 
 ### Remote machines read as themselves
 
-A connected machine's Agents are listed, opened, edited, chatted with, deleted and installed into as that machine's own, beside this server's. A conversation on a machine reads its Sessions, memory, models, scheduled tasks and Skills from that machine. When this server adopts a machine, the Sessions the machine already held are filed as CLI tasks.
+A connected machine's agents are listed, opened, edited, chatted with, deleted and installed into as that machine's own, beside this server's. A conversation on a machine reads its Sessions, memory, models, scheduled tasks and Skills from that machine. When this server adopts a machine, the Sessions the machine already held are filed as CLI tasks.
 
 A machine out of reach is named by its alias, with where its reconnect stands. Automatic reconnects stop after eight failures in a row, or at the first ssh refusal that retrying cannot fix, and the **Machines** page offers **Retry**. Machine cards show their state in a labelled pill.
 
 Messaging on a machine's conversation says where its bot runs, and a bot is checked against every server before it is turned on. Admins reach a machine's Session at `/api/sessions/:id/…` without the `/server/<machineId>` prefix. Each Web App tab sends its API calls over one WebSocket and shares machine event streams.
 
-![The Agents page listing a machine's Agents beside this server's](https://raw.githubusercontent.com/Prism-Shadow/penguin-harness-community/main/blog-assets/penguinharness-0-2-17-machines-en.png)
+![The Agents page listing a machine's agents beside this server's](https://raw.githubusercontent.com/Prism-Shadow/penguin-harness-community/main/blog-assets/penguinharness-0-2-17-machines-en.png)
 
 ## Notable in this release
 
 - **Markdown reader:** plugin READMEs, Benchmark cases and the Files panel's preview open in one reader with an outline and in-page find, and the organization handbook is the Files panel. Markdown tables share one style everywhere and scroll sideways inside their own box when they are wide.
 - **Appearance:** the accent tints your own messages. With a custom background, streaming text, loading states, the transcript's pinned rows, your message bubbles and notices show the image instead of covering it.
 - **Terminals** belong to the conversation that opened them. In the dock, a conversation's shells are tabs of one "Command-line terminal" panel.
-- **Models:** MMSP 0.5.6. New presets include MiniMax M3.1 Flash, Kimi K3.1 Pro on TokenDance, Moonshot and OpenRouter, and further OpenRouter, TokenDance and SiliconFlow rows; **Add new models** brings them into an existing Project. Penguin Go's sync refreshes its prices and promotions. The vision check works on endpoints with strict image decoders. The default model idle timeout, `model.timeoutMs`, is 600000 (10 minutes); an existing Agent picks it up on a kernel update unless its runtime tab was edited. Blank base URL, API key and price fields say what a blank field does.
+- **Models:** MMSP 0.5.6. New presets include MiniMax M3.1 Flash, Kimi K3.1 Pro on TokenDance, Moonshot and OpenRouter, and further OpenRouter, TokenDance and SiliconFlow rows; **Add new models** brings them into an existing Project. Penguin Go's sync refreshes its prices and promotions. The vision check works on endpoints with strict image decoders. The default model idle timeout, `model.timeoutMs`, is 600000 (10 minutes); an existing agent picks it up on a kernel update unless its runtime tab was edited. Blank base URL, API key and price fields say what a blank field does.
 - **Scheduled tasks** that can never fire again move to `schedule/expired/`.
 - **Sign-in:** two instances on one host stay signed in, because the browser's session cookie name carries the port (`penguin_session_<port>`).
 - **Goal mode** on an agent without the goal plugin says so in the composer and installs the plugin in one click.
-- **Fixes:** copying pastes plain text; scrolling up while a reply streams stays put; typing in the built-in browser lands in the page; switching Projects shows only that Project's Agents; a messaging bot on a conversation that has not run yet keeps answering after a server restart; a failed Agent State import keeps the previous State; long memory rows keep their actions; Software Update shows a recovery hint; Benchmark export works in any time zone.
+- **Fixes:** copying pastes plain text; scrolling up while a reply streams stays put; typing in the built-in browser lands in the page; switching Projects shows only that Project's agents; a messaging bot on a conversation that has not run yet keeps answering after a server restart; a failed Agent State import keeps the previous State; long memory rows keep their actions; Software Update shows a recovery hint; Benchmark export works in any time zone.
 - **Security:** Electron 43.8.3 and dependency updates close open Dependabot alerts.
 
 ### Upgrading
