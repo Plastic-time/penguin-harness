@@ -252,14 +252,82 @@ penguin run --message "分析 data.csv，输出季度销售额"`,
     localNote: "桌面端、Web UI 与 CLI 共用 ~/.penguin/data；切换入口不会迁移或复制数据。",
   },
 
-  cases: {
-    title: "一句话 + 0.6 元构建法务应用",
-    subtitle:
-      "用一句话描述需求，PenguinHarness 就能构建法务智能体应用：上传合同、识别风险并生成审阅报告。",
-    prompt:
-      "新建一个法务智能体，负责审阅合同、协议等法律文件：找出风险条款、说明理由并给出修改建议。再在法务智能体上做一个 Agent Workbench 标签页，当作它的工作台：我上传文件后，由它在后台分析，完成后生成一份分析报告供我下载。页面上只要上传、文件列表（每个文件的处理状态）和报告下载，不显示任何对话过程；颜色一律取自主题变量，明暗两种主题下都要好看。",
-    caption: "生成的应用：上传合同，查看每个文件的处理状态，下载列出风险条款和修改建议的审阅报告",
-    cost: "5 次样件审阅的模型花费：$0.0423。",
+  /**
+   * The A2APP section (sections/a2app.tsx): the player's chrome, the runs it replays (handed to
+   * lib/a2app-demo.ts, which holds no copy) and the mini apps' own words, then the recording.
+   * History, current and Restore are the Web App's own words for the workbench bar.
+   */
+  a2app: {
+    title: "A2APP：Agent 长出自己的应用",
+    /** Two lines, one clause each. */
+    subtitle: [
+      "Agent 为自己生成迷你应用，开在聊天旁的标签页里；",
+      "应用逐轮调用 Agent 干活，要改也只需在聊天里说一句。",
+    ],
+    player: {
+      label: "示例运行",
+      /** The tab names, which are also the workbenches' tab titles. */
+      scenarios: { legal: "合同工作台", docs: "文档问答", market: "行情看板" },
+      pause: "暂停",
+      play: "播放",
+      chat: "聊天",
+      app: "应用",
+      hostCalls: "宿主接口调用",
+      loaded: "已加载",
+      history: "历史",
+      current: "当前",
+      restore: "恢复",
+      runs: {
+        legal: {
+          ask: "新建法务智能体，并给它做一个工作台：上传合同后在后台审阅，列出风险条款、理由和修改建议。",
+          built: "合同工作台已加载，在它的标签页里上传合同即可。",
+          review: (file: string) => `审阅 ${file}`,
+          edit: "在列表里加一列风险等级，风险高的排前面。",
+          edited: "已加上风险列，风险高的排在前面。",
+        },
+        docs: {
+          ask: "新建 Claude Code 文档专家智能体，做一个带来源引用的 RAG 问答工作台。",
+          built: "文档问答已加载，在它的标签页里提问即可。",
+          question: "Hooks 在哪里配置？",
+          answer:
+            "在 settings.json 的 hooks 字段里按事件配置 [1]，每个事件下列出要运行的命令 [2]。",
+        },
+        market: {
+          ask: "新建投资分析智能体，做一个行情看板：每 5 分钟更新，解释市场因素并标注来源与时间。",
+          built: "行情看板已加载，每 5 分钟更新一次。",
+          refresh: "更新行情",
+          sectors: [
+            { name: "半导体", note: "新订单增加", source: "公司公告 09:58" },
+            { name: "新能源", note: "装机量超出预期", source: "行业数据 09:40" },
+            { name: "银行", note: "降息预期升温", source: "政策文件 09:30" },
+          ],
+        },
+      },
+      /** The mini apps' pages. */
+      page: {
+        upload: "上传合同",
+        file: "文件",
+        risk: "风险",
+        status: "状态",
+        report: "报告",
+        statuses: { queued: "排队中", running: "审阅中", done: "已完成" },
+        risks: { high: "高", medium: "中" },
+        download: "下载",
+        ask: "提问",
+        answering: "回答中",
+        sources: "来源",
+        sector: "板块",
+        change: "涨跌",
+        factor: "市场因素",
+        updated: (time: string) => `更新于 ${time}`,
+        refreshing: "更新中",
+      },
+    },
+    recording: {
+      caption: "生成的应用：上传合同，查看每个文件的处理状态，下载列出风险条款和修改建议的审阅报告",
+      cost: "5 次样件审阅的模型花费：$0.0423。",
+    },
+    link: "从 A2UI 到 A2APP",
   },
 
   /**
