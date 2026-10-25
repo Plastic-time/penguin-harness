@@ -29,7 +29,13 @@ import { usePrefersReducedMotion } from "../lib/reduced-motion";
 import { Section } from "../components/section";
 import { DemoVideo } from "../components/demo-video";
 import { ExternalLink, ExternalLinkScope } from "../components/external-link";
-import { ArrowRightIcon, ExternalLinkIcon, SpinnerIcon } from "../components/icons";
+import {
+  ArrowRightIcon,
+  ExternalLinkIcon,
+  PauseGlyph,
+  PlayGlyph,
+  SpinnerIcon,
+} from "../components/icons";
 import demoPosterZh from "../assets/shots/decision-evo-zh.webp";
 import demoPosterEn from "../assets/shots/decision-evo-en.webp";
 
@@ -72,13 +78,10 @@ export function Evolve() {
       <EvolvePlayer />
       <Catalogue />
       <figure className="mx-auto mt-14 max-w-5xl">
-        <DemoVideo src={demo.video} poster={demo.poster} label={E.recording.caption} />
-        <figcaption className="mt-3 text-center text-xs text-gray-500 dark:text-gray-400">
-          {E.recording.caption}
-        </figcaption>
-        <p className="mt-2 text-center text-[13px] font-semibold text-brand-700 dark:text-brand-300">
+        <DemoVideo src={demo.video} poster={demo.poster} label={E.recording.label} />
+        <figcaption className="mt-3 text-center text-[13px] font-semibold text-brand-700 dark:text-brand-300">
           {E.recording.cost}
-        </p>
+        </figcaption>
       </figure>
       <div className="mt-10 flex flex-wrap items-center justify-center gap-x-8 gap-y-3">
         <DocsLink href={`${DOCS_URL}self-improvement`}>{E.links.how}</DocsLink>
@@ -895,22 +898,5 @@ function CatalogueRow({ label, children }: { label: string; children: ReactNode 
         </ul>
       </dd>
     </div>
-  );
-}
-
-function PauseGlyph(): ReactNode {
-  return (
-    <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor" aria-hidden="true">
-      <rect x="14" y="4" width="4" height="16" rx="1" />
-      <rect x="6" y="4" width="4" height="16" rx="1" />
-    </svg>
-  );
-}
-
-function PlayGlyph(): ReactNode {
-  return (
-    <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor" aria-hidden="true">
-      <path d="M6 3l14 9-14 9V3Z" />
-    </svg>
   );
 }

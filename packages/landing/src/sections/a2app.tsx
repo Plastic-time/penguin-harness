@@ -24,7 +24,7 @@ import type { SiteLocale as Locale } from "@prismshadow/penguin-ui/site";
 import { S } from "../lib/strings";
 import { Section } from "../components/section";
 import { DemoVideo } from "../components/demo-video";
-import { ArrowRightIcon } from "../components/icons";
+import { ArrowRightIcon, PauseGlyph, PlayGlyph } from "../components/icons";
 import { demoVideoUrl } from "../lib/links";
 import { a2appScenarios } from "../lib/a2app-demo";
 import type { A2appScenario, AppPage, ContractRow, HostCall } from "../lib/a2app-demo";
@@ -54,13 +54,10 @@ export function A2app() {
       <div className="mx-auto max-w-5xl">
         <A2appPlayer />
         <figure className="mt-12 sm:mt-16">
-          <DemoVideo src={demo.video} poster={demo.poster} label={a.recording.caption} />
-          <figcaption className="mt-3 text-center text-xs text-gray-500 dark:text-gray-400">
-            {a.recording.caption}
-          </figcaption>
-          <p className="mt-2 text-center text-[13px] font-semibold text-brand-700 dark:text-brand-300">
+          <DemoVideo src={demo.video} poster={demo.poster} label={a.recording.label} />
+          <figcaption className="mt-3 text-center text-[13px] font-semibold text-brand-700 dark:text-brand-300">
             {a.recording.cost}
-          </p>
+          </figcaption>
         </figure>
         <p className="mt-6 text-center">
           <Link
@@ -168,11 +165,14 @@ function A2appPlayer() {
   return (
     <div ref={rootRef}>
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-gray-50 text-left dark:border-gray-800 dark:bg-gray-900">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-gray-200 px-2 pt-1.5 dark:border-gray-800">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-gray-200 px-3 pt-1.5 dark:border-gray-800">
+          <span id={`${tabsId}-label`} className={`pb-1 ${PANE_LABEL}`}>
+            {P.label}
+          </span>
           <div
             ref={tabsRef}
             role="tablist"
-            aria-label={P.label}
+            aria-labelledby={`${tabsId}-label`}
             className="flex flex-wrap gap-1"
             onKeyDown={onTabKey}
           >
@@ -186,26 +186,23 @@ function A2appPlayer() {
                 aria-selected={i === index}
                 tabIndex={i === index ? 0 : -1}
                 onClick={() => choose(i)}
-                className="rounded-t-md border-b-2 border-transparent px-2.5 py-1.5 text-[13px] whitespace-nowrap text-gray-500 transition-colors hover:text-gray-900 aria-selected:border-brand-600 aria-selected:font-medium aria-selected:text-brand-700 dark:text-gray-400 dark:hover:text-gray-100 dark:aria-selected:border-brand-400 dark:aria-selected:text-brand-300"
+                className="rounded-t-md border-b-2 border-transparent px-2.5 py-1 text-[13px] whitespace-nowrap text-gray-500 transition-colors hover:text-gray-900 aria-selected:border-brand-600 aria-selected:font-medium aria-selected:text-brand-700 dark:text-gray-400 dark:hover:text-gray-100 dark:aria-selected:border-brand-400 dark:aria-selected:text-brand-300"
               >
                 {P.scenarios[candidate.id]}
               </button>
             ))}
           </div>
-          <span className="mb-1 ml-auto flex items-center gap-3">
-            <span className="text-xs text-gray-400 dark:text-gray-500">{P.label}</span>
-            {!still && (
-              <button
-                type="button"
-                aria-pressed={paused}
-                onClick={() => setPaused((was) => !was)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-gray-600 transition-colors hover:text-gray-950 dark:border-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
-              >
-                {paused ? <PlayGlyph /> : <PauseGlyph />}
-                <span>{paused ? P.play : P.pause}</span>
-              </button>
-            )}
-          </span>
+          {!still && (
+            <button
+              type="button"
+              aria-pressed={paused}
+              onClick={() => setPaused((was) => !was)}
+              className="mb-1 ml-auto inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-gray-600 transition-colors hover:text-gray-950 dark:border-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
+            >
+              {paused ? <PlayGlyph /> : <PauseGlyph />}
+              <span>{paused ? P.play : P.pause}</span>
+            </button>
+          )}
         </div>
 
         <div
@@ -601,22 +598,5 @@ function MarketBoard({ page }: { page: Extract<AppPage, { kind: "board" }> }) {
         </tbody>
       </table>
     </div>
-  );
-}
-
-function PauseGlyph(): ReactNode {
-  return (
-    <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor" aria-hidden="true">
-      <rect x="14" y="4" width="4" height="16" rx="1" />
-      <rect x="6" y="4" width="4" height="16" rx="1" />
-    </svg>
-  );
-}
-
-function PlayGlyph(): ReactNode {
-  return (
-    <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor" aria-hidden="true">
-      <path d="M6 3l14 9-14 9V3Z" />
-    </svg>
   );
 }

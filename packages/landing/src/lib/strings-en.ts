@@ -145,10 +145,6 @@ export const en: Strings = {
     loading: "Loading the live demo…",
   },
 
-  showcase: {
-    start: "Start page (live demo)",
-  },
-
   evolve: {
     title: "Self-evolution you can watch",
     subtitle:
@@ -212,8 +208,7 @@ export const en: Strings = {
       "Agent self-evolution",
     ],
     recording: {
-      caption:
-        "A decision agent is evaluated, revises its working method once and is retested on the same model. Its score goes from 84 to 100.",
+      label: "Recording: a decision agent's self-evolution round",
       cost: "Six test-agent runs cost $0.0373, not counting Benchmark creation, scoring or the optimizer.",
     },
     links: {
@@ -342,55 +337,10 @@ penguin run --message "Analyze data.csv and summarize quarterly sales"`,
       },
     },
     recording: {
-      caption:
-        "The app it built: upload contracts, follow each file's review and download a report of risky clauses with suggested revisions",
+      label: "Recording: a legal app built from one request",
       cost: "Five sample reviews cost $0.0423 in model calls.",
     },
     link: "From A2UI to A2APP",
-  },
-
-  pillars: {
-    title: "A minimal, file-centric agent architecture",
-    subtitle: "When an agent improves, its files change and the model does not.",
-    root: "PenguinHarness",
-    diagramLabel:
-      "PenguinHarness branches into AMSP, the Penguin SDK and Agent State, each leading to one card below",
-    items: [
-      {
-        concept: "AMSP",
-        title: "Simplest is the best",
-        desc: "The engine streams AMSP records, the Trace stores them, the Web App renders them and the Agent API serves them to your programs, with no second format in between. Models are reached over MMSP.",
-        link: "AMSP records",
-      },
-      {
-        concept: "Penguin SDK",
-        title: "Harness for building agents",
-        desc: "Every Task in PenguinHarness runs on @prismshadow/penguin-core. You can install the same package from npm. With the penguin-sdk Skill, an agent builds a standalone app on it, such as a RAG app that cites its sources.",
-        link: "SDK quick start",
-      },
-      {
-        concept: "Agent State",
-        title: "Harness for recursive self-improvement",
-        desc: "Its prompt, Skills and settings are files in its Agent State. Self-evolution edits these files and snapshots each version before changing it.",
-        link: "Configuration reference",
-      },
-    ],
-  },
-
-  compare: {
-    title: "Build enterprise-grade agents fast",
-    subtitle:
-      "An agent library runs the loop that calls the model and its tools. Around that loop you still need an interface, a record of each run, a way to score the agent and an API to call it.",
-    library: {
-      name: "Agent library",
-      mode: "You build each piece",
-      note: "Write each part yourself, or wire in a separate product for it.",
-    },
-    penguin: {
-      name: "PenguinHarness",
-      mode: "Already built",
-      note: "A Web App, Traces, the Evaluation Center with built-in Benchmarks, self-evolution toolkits, a sandbox and the Agent API.",
-    },
   },
 
   scenarios: {

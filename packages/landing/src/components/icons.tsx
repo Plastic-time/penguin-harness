@@ -172,6 +172,25 @@ export function PlayIcon(props: IconProps) {
   );
 }
 
+/** A replay's Pause control: two filled bars, sized for an `text-xs` button. */
+export function PauseGlyph(): ReactNode {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor" aria-hidden="true">
+      <rect x="14" y="4" width="4" height="16" rx="1" />
+      <rect x="6" y="4" width="4" height="16" rx="1" />
+    </svg>
+  );
+}
+
+/** A replay's Play control: a filled triangle, the pair of {@link PauseGlyph}. */
+export function PlayGlyph(): ReactNode {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor" aria-hidden="true">
+      <path d="M6 3l14 9-14 9V3Z" />
+    </svg>
+  );
+}
+
 /** Pair it with `animate-spin`: the gap in the ring is what makes the rotation readable. */
 export function SpinnerIcon(props: IconProps) {
   return (

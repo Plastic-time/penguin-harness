@@ -23,7 +23,7 @@
  * every run, fits one screen beside the hero's copy.
  */
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent } from "react";
 import { highlightSiteCode, SiteCodeBlock, SitePill } from "@prismshadow/penguin-ui/site";
 import { S } from "../lib/strings";
 import { SCENARIOS } from "../lib/amsp-demo";
@@ -33,6 +33,7 @@ import type { ReplayItem, ReplayState, StepLine } from "../lib/amsp-replay";
 import type { TokenCounts } from "../lib/amsp-protocol";
 import { usePrefersReducedMotion } from "../lib/reduced-motion";
 import { lineFamily, TONES } from "../lib/amsp-tones";
+import { PauseGlyph, PlayGlyph } from "./icons";
 
 /** The finished run stays on screen this long before it plays again. */
 const REST_MS = 3000;
@@ -427,22 +428,5 @@ function UsageBars({ usage }: { usage: TokenCounts }) {
         );
       })}
     </div>
-  );
-}
-
-function PauseGlyph(): ReactNode {
-  return (
-    <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor" aria-hidden="true">
-      <rect x="14" y="4" width="4" height="16" rx="1" />
-      <rect x="6" y="4" width="4" height="16" rx="1" />
-    </svg>
-  );
-}
-
-function PlayGlyph(): ReactNode {
-  return (
-    <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor" aria-hidden="true">
-      <path d="M6 3l14 9-14 9V3Z" />
-    </svg>
   );
 }

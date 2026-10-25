@@ -149,11 +149,6 @@ export const zh = {
     loading: "正在载入实时演示…",
   },
 
-  /** The app live under the hero (sections/hero.tsx names its frame for assistive technology). */
-  showcase: {
-    start: "开始页（实时演示）",
-  },
-
   /**
    * Observable self-evolution (sections/evolve.tsx): two replayed rounds of the Default loop
    * beside the scoreboard they write, the algorithms and Benchmarks, the recorded demo.
@@ -219,7 +214,8 @@ export const zh = {
     /** One per BENCHMARKS entry, in its order (the benchmarks of Sec A to Sec E, then GDPevo): the kind of each. */
     benchmarkKinds: ["数据分析", "软件工程", "业务自动化", "科学研究", "终端任务", "Agent 自进化"],
     recording: {
-      caption: "决策智能体经过评测、一次工作方法改进和同模型复测，分数从 84 提升到 100。",
+      /** The video's accessible name; no sentence on the page retells what it shows. */
+      label: "录屏：决策智能体的一轮自进化",
       cost: "被测 Agent 的 6 次运行花费 $0.0373，不含出题、评分和优化的成本。",
     },
     links: {
@@ -349,59 +345,11 @@ penguin run --message "分析 data.csv，输出季度销售额"`,
       },
     },
     recording: {
-      caption: "生成的应用：上传合同，查看每个文件的处理状态，下载列出风险条款和修改建议的审阅报告",
+      /** The video's accessible name; no sentence on the page retells what it shows. */
+      label: "录屏：一句话生成的法务应用",
       cost: "5 次样件审阅的模型花费：$0.0423。",
     },
     link: "从 A2UI 到 A2APP",
-  },
-
-  /**
-   * The radiating diagram and its cards (sections/pillars.tsx): each item's `concept` labels one
-   * branch of the diagram and the card under it. Concept names are product names, the same in
-   * both languages.
-   */
-  pillars: {
-    title: "以文件为中心的极简 Agent 架构",
-    subtitle: "Agent 变强时，改的是它的文件，模型保持不变。",
-    root: "PenguinHarness",
-    diagramLabel: "PenguinHarness 分出 AMSP、Penguin SDK 和 Agent State 三支，各指向下方一张卡片",
-    items: [
-      {
-        concept: "AMSP",
-        title: "Simplest Is the Best",
-        desc: "引擎流式输出 AMSP 记录，Trace 逐条存下，Web App 直接渲染，Agent API 原样交给你的程序，中间没有第二种格式。模型经 MMSP 接入。",
-        link: "AMSP 记录",
-      },
-      {
-        concept: "Penguin SDK",
-        title: "Harness for Building Agents",
-        desc: "PenguinHarness 里的每个 Task 都跑在 @prismshadow/penguin-core 上，同一个包也能从 npm 安装。借助 penguin-sdk Skill，Agent 能在它之上做出独立运行的应用，比如回答时标注来源的 RAG 应用。",
-        link: "SDK 快速上手",
-      },
-      {
-        concept: "Agent State",
-        title: "Harness for Recursive Self-Improvement",
-        desc: "它的提示词、Skill 和设置都是 Agent State 里的文件。自进化改的就是这些文件，每个版本在改动前都会先存快照。",
-        link: "配置参考",
-      },
-    ],
-  },
-
-  /** Building on an agent library against PenguinHarness (sections/compare.tsx). */
-  compare: {
-    title: "快速搭建企业级 Agent",
-    subtitle:
-      "Agent 开发库负责调用模型和工具的那个循环。在它之外，你还需要一个界面、每次运行的记录、给 Agent 打分的办法，以及供外部调用的 API。",
-    library: {
-      name: "Agent 开发库",
-      mode: "每一块都自己搭",
-      note: "每一块要么自己写，要么另接一个产品。",
-    },
-    penguin: {
-      name: "PenguinHarness",
-      mode: "已经搭好",
-      note: "Web App、Trace、带内置 Benchmark 的评估中心、自进化工具包、沙箱和 Agent API。",
-    },
   },
 
   scenarios: {

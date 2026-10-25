@@ -9,7 +9,7 @@
  * covered card is a pointer-only shortcut and stays aria-hidden — dots carry the
  * accessible switching — and prefers-reduced-motion disables auto-advance.
  * SHOTS is index-aligned with S.scenarios.items; the photos are theme-agnostic,
- * so a single asset serves light and dark (unlike the Cases screenshots).
+ * so a single asset serves light and dark.
  */
 import { useEffect, useState } from "react";
 import { S } from "../lib/strings";

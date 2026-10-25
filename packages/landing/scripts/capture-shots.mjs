@@ -1,5 +1,5 @@
 /**
- * Capture the Cases section's poster: the conversation that built the RAG app, in the product.
+ * Capture the conversation that built the RAG app, in the product.
  *
  * Flow: host a scripted mock LLM (speaks BOTH Anthropic SSE and OpenAI chat-completions
  * SSE, so whichever client MMSP routes to gets a valid stream) -> start the Web
@@ -8,7 +8,7 @@
  * screenshot the finished chat page per UI language (zh / en, each with its own user so
  * sidebars stay monolingual) and per mode (light / dark), in the app's default theme, into
  * src/assets/shots/ as chat-<lang>-<mode>.webp (re-encoded to WebP inside Chromium to keep
- * the repo small). The rest of the home page shows the app live, from the gallery.
+ * the repo small).
  *
  * Prereqs: `pnpm --filter @prismshadow/penguin-{core,server,web} build` and Playwright's
  * chromium. Run: `node scripts/capture-shots.mjs`. On a shared machine, SHOTS_PORT moves the
