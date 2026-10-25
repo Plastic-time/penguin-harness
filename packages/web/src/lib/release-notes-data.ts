@@ -14,14 +14,14 @@ export const RELEASE_NOTES: readonly ReleaseNote[] = [
     zh: [
       "Agent API 边记录对话边流式传输，你的程序可以跟进不是自己发起的对话。",
       "回复可以显示图表与表单，填过的表单重新加载后仍显示答案。",
-      "Trace 面板重新构建，核心是固定在顶部的工具栏、轮次导航和每轮的精确 Token 数据。",
+      "轨迹观测面板重新构建，核心是固定在顶部的工具栏、轮次导航和每轮的精确 Token 数据。",
       "远程机器上的对话读取该机器自己的 Agent、记忆和模型，机器连不上时明确告知。",
       "Kimi K3.1 Pro 和 MiniMax M3.1 Flash 加入模型库；Markdown 文档在 Markdown 阅读器中打开，内置目录和在文档中查找。",
     ],
     en: [
       "The Agent API streams a conversation as it is recorded, and your programs can follow conversations they did not start.",
       "Replies can show charts and forms, and an answered form still shows its answers after a reload.",
-      "The Trace panel is rebuilt around a sticky toolbar, a round navigator and each round's exact token figures.",
+      "The Trajectories panel is rebuilt around a sticky toolbar, a turn index and each turn's exact token figures.",
       "A conversation on a remote machine reads that machine's own agents, memory and models, and says plainly when the machine is out of reach.",
       "Kimi K3.1 Pro and MiniMax M3.1 Flash join the model catalog, and Markdown documents open in a reader with an outline and in-page find.",
     ],

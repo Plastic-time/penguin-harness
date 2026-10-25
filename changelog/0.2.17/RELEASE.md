@@ -69,11 +69,11 @@ The checker no longer grades the prose outside the blocks. Agents get all of thi
 
 ### A rebuilt Trace view
 
-The Trace panel has one sticky toolbar, and the round navigator opens from a button that names the round in view. Rounds are ruled rows, and a round's context ring opens its exact token figures. Each event row carries one pill, toned by its record family. Every request now records its thinking level on `request_begin`, and the view shows the level as text where it changes.
+The **Trajectories** panel has one sticky toolbar, and the turn index opens from a button that names the turn in view. Turns are ruled rows, and a turn's context ring opens its exact token figures. Each event row carries one pill, toned by its record family. Every request now records its thinking level on `request_begin`, and the view shows the level as text where it changes.
 
 A command that exits non-zero or is killed by a signal is now an ordinary completed tool call in the chat, the Trace and the CLI. Task boundaries are recorded with `task_begin` / `task_end`; Traces written before them are read as before.
 
-![The Trace panel with its sticky toolbar and the round navigator open](https://raw.githubusercontent.com/Prism-Shadow/penguin-harness-community/main/blog-assets/penguinharness-0-2-17-trace-en.png)
+![The Trajectories panel with its sticky toolbar and the turn index open](https://raw.githubusercontent.com/Prism-Shadow/penguin-harness-community/main/blog-assets/penguinharness-0-2-17-trace-en.png)
 
 ### Remote machines read as themselves
 
