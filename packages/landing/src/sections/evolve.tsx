@@ -838,11 +838,13 @@ function CandidateMark({
 
 /**
  * An entry of a catalogue row: plain text on the page, no box of its own, with its one-line
- * description under it.
+ * description under it. It flows inline, so a name that wraps keeps its link mark after its last
+ * word.
  */
-const ENTRY = "inline-flex items-center gap-1 text-sm font-medium text-gray-800 dark:text-gray-200";
+const ENTRY = "text-sm font-medium text-gray-800 dark:text-gray-200";
 const ENTRY_LINK = `${ENTRY} underline-offset-4 decoration-gray-300 transition-colors hover:text-gray-950 hover:underline dark:decoration-gray-600 dark:hover:text-white`;
 const ENTRY_NOTE = "mt-0.5 block text-gray-500 dark:text-gray-400";
+const ENTRY_MARK = "ml-1 inline-block h-3 w-3 align-[-0.05em] text-gray-400 dark:text-gray-500";
 
 /** A repository's name, from its URL: what a Benchmark is drawn from. */
 const repoName = (href: string) => new URL(href).pathname.split("/").filter(Boolean).at(-1) ?? "";
@@ -859,7 +861,7 @@ function Catalogue() {
               {toolkit.href !== null ? (
                 <ExternalLink href={toolkit.href} className={ENTRY_LINK}>
                   {toolkit.label}
-                  <ExternalLinkIcon className="h-3 w-3 text-gray-400 dark:text-gray-500" />
+                  <ExternalLinkIcon className={ENTRY_MARK} />
                 </ExternalLink>
               ) : (
                 <span className={ENTRY}>{toolkit.label}</span>
@@ -875,7 +877,7 @@ function Catalogue() {
             <li key={benchmark.href} className="min-w-0">
               <ExternalLink href={benchmark.href} className={ENTRY_LINK}>
                 {E.benchmarkKinds[i]}
-                <ExternalLinkIcon className="h-3 w-3 text-gray-400 dark:text-gray-500" />
+                <ExternalLinkIcon className={ENTRY_MARK} />
               </ExternalLink>
               <span className={`${ENTRY_NOTE} font-mono text-[11px]`}>
                 {repoName(benchmark.href)}

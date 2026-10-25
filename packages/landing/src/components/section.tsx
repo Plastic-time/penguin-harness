@@ -36,7 +36,9 @@ export function Section({
               </h2>
             )}
             {subtitle && (
-              <p className="mx-auto mt-4 max-w-3xl text-base leading-7 text-pretty text-gray-600 dark:text-gray-400">
+              // keep-all, as the heading: a CJK line wraps at its spaces and punctuation, so a
+              // phone never leaves the last word of a clause alone on a line.
+              <p className="mx-auto mt-4 max-w-3xl text-base leading-7 text-pretty break-keep text-gray-600 [overflow-wrap:break-word] dark:text-gray-400">
                 {typeof subtitle === "string"
                   ? subtitle
                   : subtitle.map((line) => (

@@ -155,8 +155,14 @@ export const zh = {
    */
   evolve: {
     title: "可观测的自进化",
-    subtitle:
-      "在多维能力评估集上给 Agent 打分，用前沿 RSI 算法逐轮改进；每个版本的分数、成本和耗时都有记录，更高才保留。",
+    /**
+     * Two clauses, one line each, so a wide screen never breaks inside the last words; the
+     * English pair of sentences wraps as one paragraph.
+     */
+    subtitle: [
+      "在多维能力评估集上给 Agent 打分，用前沿 RSI 算法逐轮改进；",
+      "每个版本的分数、成本和耗时都有记录，更高才保留。",
+    ] as string | readonly string[],
     player: {
       label: "示例运行",
       round: (n: number) => `第 ${n} 轮`,
