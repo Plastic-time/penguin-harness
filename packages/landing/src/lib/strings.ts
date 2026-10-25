@@ -45,31 +45,19 @@ export const zh = {
   },
 
   hero: {
-    positioning: "统一、稳定的 Agent 自进化框架",
-    /** The badge on the positioning line's top-right corner. */
-    badge: "免费开源",
-    /** A no-break space before each dot keeps it at the end of its line when a phone wraps. */
-    automation: "全自动优化：任意模型\u00a0· 任意算法\u00a0· 任意 Benchmark",
+    /** Two clauses, drawn as two spans: a line too narrow for both breaks between them. */
+    slogan: ["让软件持续成长，", "让进化触手可及"],
+    subtitle: "免费、稳定的 Agent 自进化框架",
     downloadCta: "下载桌面版",
     cliInstall: "命令行安装",
-    stats: [
-      { value: "跨平台部署", label: "Linux · Windows · macOS" },
-      { value: "100% 开源", label: "Apache 2.0 协议" },
-      { value: "首个自进化 Harness", label: "原生 Agent 自进化引擎" },
-    ],
     /**
-     * The three catalogue rows under the stat tiles, each led by its count; their entries live in
-     * lib/rsi-stats.ts. The model count is a claim about the catalog and is spelled here; the
-     * algorithm and Benchmark counts are those lists' lengths.
+     * The link after the provider logos, to MMSP's model index. The count is a claim about the
+     * catalog and is spelled here.
      */
-    supportedModelsCount: "1000+",
-    supportedModelsLabel: "支持模型",
-    supportedModelsMore: "以及更多",
-    algorithmsLabel: "自进化算法",
-    benchmarksLabel: "评估集",
-    /** One per BENCHMARKS entry, in its order (the benchmarks of Sec A to Sec E, then GDPevo): the kind of each. */
-    benchmarkKinds: ["数据分析", "软件工程", "业务自动化", "科学研究", "终端任务", "Agent 自进化"],
-    /** The confirmation an outside link in the catalogue rows asks before it opens. */
+    modelsMore: "等 1000+ 个模型",
+    /** Names the live start-page frame under the hero for assistive technology. */
+    startFrame: "开始页（实时演示）",
+    /** The confirmation an outside link asks before it opens. */
     externalLink: {
       title: "即将打开外部链接",
       body: "这个链接指向 PenguinHarness 之外的网站，会在新标签页中打开：",
@@ -391,11 +379,12 @@ penguin run --message "分析 data.csv，输出季度销售额"`,
   },
 
   footer: {
-    tagline: "统一、稳定的 Agent 自进化框架",
+    tagline: "免费、稳定的 Agent 自进化框架",
     product: "产品",
     resources: "资源",
+    a2app: "A2APP",
+    evolve: "自进化",
     quickstart: "快速开始",
-    cases: "案例",
     blog: "博客",
     repo: "GitHub 仓库",
     docs: "文档",
