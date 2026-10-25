@@ -278,15 +278,75 @@ penguin run --message "Analyze data.csv and summarize quarterly sales"`,
       "Desktop, Web UI, and CLI share ~/.penguin/data; switching entry points never moves or copies your data.",
   },
 
-  cases: {
-    title: "One sentence and $0.10 build a legal agent app",
-    subtitle:
-      "Describe what you need in one request. PenguinHarness builds a legal agent app that takes contract uploads, identifies risks and produces review reports to download.",
-    prompt:
-      "Build a legal review agent with a simple workspace where users upload contracts, track the review, and download a report with risky clauses, explanations, and suggested revisions.",
-    caption:
-      "The app it built: upload contracts, follow each file's review and download a report of risky clauses with suggested revisions",
-    cost: "Five sample reviews cost $0.0423 in model calls.",
+  a2app: {
+    title: "A2APP: agents grow their own apps",
+    subtitle: [
+      "An agent builds a mini app of its own in a tab beside its chat.",
+      "The app calls the agent turn by turn, and one sentence in Chat changes it.",
+    ],
+    player: {
+      label: "Example runs",
+      scenarios: { legal: "Contract desk", docs: "Docs Q&A", market: "Market board" },
+      pause: "Pause",
+      play: "Play",
+      chat: "Chat",
+      app: "App",
+      hostCalls: "Host API calls",
+      loaded: "loaded",
+      history: "History",
+      current: "current",
+      restore: "Restore",
+      runs: {
+        legal: {
+          ask: "Create a legal agent with its own workbench: upload a contract, it reviews it in the background and lists risky clauses, reasons and suggested revisions.",
+          built: "The Contract desk has loaded. Upload contracts in its tab.",
+          review: (file: string) => `Review ${file}`,
+          edit: "Add a risk column and put the riskiest contracts first.",
+          edited: "Added a risk column with the riskiest contracts first.",
+        },
+        docs: {
+          ask: "Create a Claude Code docs expert with a RAG Q&A workbench that cites its sources.",
+          built: "Docs Q&A has loaded. Ask in its tab.",
+          question: "Where are hooks configured?",
+          answer:
+            "In the hooks field of settings.json, grouped by event [1]. Each event lists the commands to run [2].",
+        },
+        market: {
+          ask: "Create an investment analyst with a market board: refreshed every five minutes, explaining market factors with sources and times.",
+          built: "The market board has loaded and refreshes every five minutes.",
+          refresh: "Refresh the market",
+          sectors: [
+            { name: "Semiconductors", note: "More new orders", source: "Company filing 09:58" },
+            { name: "New energy", note: "Installs beat forecasts", source: "Industry data 09:40" },
+            { name: "Banks", note: "Rate-cut hopes rise", source: "Policy notice 09:30" },
+          ],
+        },
+      },
+      page: {
+        upload: "Upload contracts",
+        file: "File",
+        risk: "Risk",
+        status: "Status",
+        report: "Report",
+        statuses: { queued: "Queued", running: "Reviewing", done: "Done" },
+        risks: { high: "High", medium: "Medium" },
+        download: "Download",
+        ask: "Ask",
+        answering: "Answering",
+        sources: "Sources",
+        sector: "Sector",
+        change: "Change",
+        factor: "Factor",
+        updated: (time: string) => `Updated ${time}`,
+        refreshing: "Refreshing",
+      },
+    },
+    recording: {
+      caption:
+        "The app it built: upload contracts, follow each file's review and download a report of risky clauses with suggested revisions",
+      cost: "Five sample reviews cost $0.0423 in model calls.",
+    },
+    link: "From A2UI to A2APP",
   },
 
   pillars: {
