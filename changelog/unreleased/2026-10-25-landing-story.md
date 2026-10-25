@@ -3,6 +3,7 @@
 - **Date:** 2026-10-25
 - **Type:** feature
 - **Scope:** `landing`
+- **PR:** [#1321](https://github.com/Prism-Shadow/penguin-harness/pull/1321)
 
 [中文版](2026-10-25-landing-story.zh.md)
 

@@ -846,6 +846,20 @@ const ENTRY_LINK = `${ENTRY} underline-offset-4 decoration-gray-300 transition-c
 const ENTRY_NOTE = "mt-0.5 block text-gray-500 dark:text-gray-400";
 const ENTRY_MARK = "ml-1 inline-block h-3 w-3 align-[-0.05em] text-gray-400 dark:text-gray-500";
 
+/** An outside link's name with its mark kept on the last word's line, so a wrap never strands it. */
+function Marked({ name }: { name: string }) {
+  const cut = name.lastIndexOf(" ") + 1;
+  return (
+    <>
+      {name.slice(0, cut)}
+      <span className="whitespace-nowrap">
+        {name.slice(cut)}
+        <ExternalLinkIcon className={ENTRY_MARK} />
+      </span>
+    </>
+  );
+}
+
 /** A repository's name, from its URL: what a Benchmark is drawn from. */
 const repoName = (href: string) => new URL(href).pathname.split("/").filter(Boolean).at(-1) ?? "";
 
@@ -860,8 +874,7 @@ function Catalogue() {
             <li key={toolkit.plugin} className="min-w-0">
               {toolkit.href !== null ? (
                 <ExternalLink href={toolkit.href} className={ENTRY_LINK}>
-                  {toolkit.label}
-                  <ExternalLinkIcon className={ENTRY_MARK} />
+                  <Marked name={toolkit.label} />
                 </ExternalLink>
               ) : (
                 <span className={ENTRY}>{toolkit.label}</span>
@@ -876,8 +889,7 @@ function Catalogue() {
           {BENCHMARKS.map((benchmark, i) => (
             <li key={benchmark.href} className="min-w-0">
               <ExternalLink href={benchmark.href} className={ENTRY_LINK}>
-                {E.benchmarkKinds[i]}
-                <ExternalLinkIcon className={ENTRY_MARK} />
+                <Marked name={E.benchmarkKinds[i]!} />
               </ExternalLink>
               <span className={`${ENTRY_NOTE} font-mono text-[11px]`}>
                 {repoName(benchmark.href)}
