@@ -73,7 +73,7 @@ The **Trajectories** panel has one sticky toolbar, and the turn index opens from
 
 A command that exits non-zero or is killed by a signal is now an ordinary completed tool call in the chat, the Trace and the CLI. Task boundaries are recorded with `task_begin` / `task_end`; Traces written before them are read as before.
 
-![The Trajectories panel with its sticky toolbar and the turn index open](https://raw.githubusercontent.com/Prism-Shadow/penguin-harness-community/main/blog-assets/penguinharness-0-2-17-trace-en.png)
+![The Trajectories panel: the sticky toolbar, the Overall summary, the turn rows and an opened turn's timeline and events](https://raw.githubusercontent.com/Prism-Shadow/penguin-harness-community/main/blog-assets/penguinharness-0-2-17-trace-en.png)
 
 ### Remote machines read as themselves
 
