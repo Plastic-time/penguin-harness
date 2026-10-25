@@ -20,6 +20,9 @@
  *   mark from).
  * - Both sets are client bookkeeping (localStorage) capped at CAP ids, oldest evicted: they
  *   are the user's own tracker, not a deletion — the Sessions themselves are untouched.
+ * - The company a row's Session belongs to — `companyOfRow` — is named only when the shell's
+ *   own organization list holds it, so the click can take the company view there before it
+ *   asks the sidebar to locate the row; a company this shell cannot show reads as none.
  */
 import type { HarnessStatusSession, SessionStatus } from "@prismshadow/penguin-server/api";
 
@@ -168,6 +171,25 @@ export function byLatest(rows: readonly HarnessStatusSession[]): HarnessStatusSe
     }
     return a.sessionId < b.sessionId ? 1 : a.sessionId > b.sessionId ? -1 : 0;
   });
+}
+
+/**
+ * The company a row's Session belongs to, as the pair that names an organization — or null
+ * when the click should not reach for one. The row's own `orgId` says which company holds the
+ * Session (the poll stamped it from the answering server's caches); `organizations` — the
+ * shell's own list, spanning every Project it can reach — says whether THIS shell can show
+ * that company at all. A row without one, a company of a machine this shell has no page for,
+ * or a list that has not loaded yet all read null, and the click keeps its old behaviour:
+ * the jump alone, with the locate ask left standing for whatever sidebar can answer it.
+ */
+export function companyOfRow(
+  row: Pick<HarnessStatusSession, "projectId" | "orgId">,
+  organizations: ReadonlyArray<{ projectId: string; orgId: string }>,
+): { projectId: string; orgId: string } | null {
+  if (row.orgId === null) return null;
+  return organizations.some((o) => o.projectId === row.projectId && o.orgId === row.orgId)
+    ? { projectId: row.projectId, orgId: row.orgId }
+    : null;
 }
 
 /** One decimal of GB — the bar's memory shape (`6.2 / 16 GB`). */

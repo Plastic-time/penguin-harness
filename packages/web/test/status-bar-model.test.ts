@@ -10,6 +10,9 @@
  *   holds a row for.
  * - The two sets persist under their keys, capped, oldest evicted; an unreadable store
  *   reads as empty and a refused write costs only persistence.
+ * - The company a row's Session belongs to is named only when the shell's own organization
+ *   list holds it — a row without one, or of a company the shell cannot show, answers null,
+ *   and the click keeps its old behaviour: the jump alone.
  */
 import { describe, expect, it } from "vitest";
 import type { HarnessStatusSession } from "@prismshadow/penguin-server/api";
@@ -19,6 +22,7 @@ import {
   MARKS_KEY,
   OPENED_KEY,
   byLatest,
+  companyOfRow,
   gigabytes,
   loadIdSet,
   marksForTransitions,
@@ -42,6 +46,7 @@ const row = (
   status,
   lastActiveAt: "2026-10-22T00:00:00.000Z",
   machineId: null,
+  orgId: null,
   ...over,
 });
 
@@ -212,5 +217,43 @@ describe("the counts and the machine (我查看了多少个 · 最近查看所�
     expect(gigabytes(1024 ** 3)).toBe("1.0");
     expect(gigabytes(6.2 * 1024 ** 3)).toBe("6.2");
     expect(gigabytes(249 * 1024 ** 3)).toBe("249.0");
+  });
+});
+
+describe("the company a row belongs to (点击时先到所属 company)", () => {
+  const organizations = [
+    { projectId: "p1", orgId: "acme" },
+    { projectId: "p2", orgId: "acme" },
+    { projectId: "p1", orgId: "globex" },
+  ];
+
+  it("names the pair when the shell's own list holds it", () => {
+    expect(companyOfRow(row("s", "idle", { orgId: "acme" }), organizations)).toEqual({
+      projectId: "p1",
+      orgId: "acme",
+    });
+    expect(
+      companyOfRow(row("s", "idle", { projectId: "p1", orgId: "globex" }), organizations),
+    ).toEqual({ projectId: "p1", orgId: "globex" });
+  });
+
+  it("two same-named organizations are different companies: the row answers its own Project's", () => {
+    expect(
+      companyOfRow(row("s", "idle", { projectId: "p2", orgId: "acme" }), organizations),
+    ).toEqual({
+      projectId: "p2",
+      orgId: "acme",
+    });
+  });
+
+  it("reads null when the row names none, or one this shell cannot show", () => {
+    // A Session no organization holds (a development one), a company of a Project this
+    // shell has no page for, and a list that has not loaded yet: each keeps the click's
+    // old behaviour — the jump, with no company reached.
+    expect(companyOfRow(row("s", "idle", { orgId: null }), organizations)).toBeNull();
+    expect(
+      companyOfRow(row("s", "idle", { projectId: "p9", orgId: "acme" }), organizations),
+    ).toBeNull();
+    expect(companyOfRow(row("s", "idle", { orgId: "acme" }), [])).toBeNull();
   });
 });

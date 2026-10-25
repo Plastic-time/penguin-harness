@@ -26,15 +26,18 @@ shows the counts `session: ${active} / ${viewed}` alone.
   that decides the list, kept in localStorage and capped at 200 ids. A row's x stops keeping a
   session: it leaves the list and the count goes down by one. The session itself is untouched.
 - The list is the sessions you have opened that the harness still holds — wherever in the
-  harness they live, each row stamped with the machine it is on — together with every active
-  session, opened or not: a row you never opened rides the list only while the poll still
-  reports it active, carries no x and no mark, and one click opens it with every current
-  semantic. A session you opened that a poll first reads idle after a running one carries a
-  one-time "Went idle" mark, until you open it again.
-- Clicking a row moves the shell onto that session and asks the left column to catch up: the
-  sidebar unfolds the group the row lives in — its desk's group for a company session, or a
-  ticket entry listed exactly as if it had been opened from its ticket — and brings the row
-  into view.
+  harness they live, each row stamped with the machine it is on, and with the organization
+  that holds it when one does — together with every active session, opened or not: a row you
+  never opened rides the list only while the poll still reports it active, carries no x and
+  no mark, and one click opens it with every current semantic. A session you opened that a
+  poll first reads idle after a running one carries a one-time "Went idle" mark, until you
+  open it again.
+- Clicking a row moves the shell onto that session and asks the left column to catch up: a
+  row of a company the sidebar is not on takes it there first (entering company mode if the
+  shell is in development), and then the sidebar unfolds the group the row lives in — its
+  desk's group for a company session, or a ticket entry listed exactly as if it had been
+  opened from its ticket — and brings the row into view. A company this shell's own
+  organization list cannot show leaves everything as it was.
 - The left side follows the machine of the session you viewed most recently: the load that
   matters is the load of whatever you last worked on, which for a company on its own machine
   is that machine. A machine that did not answer the poll shows no numbers rather than another

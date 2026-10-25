@@ -515,15 +515,16 @@ export function OrgSessionGroups({
     setTempOpen(true);
   }, [locate, desks, company.orgChart, projectId, orgId, user]);
   // The scroll that finishes the ask: the row has to be seen, not merely listed. It runs
-  // again as the unfold and the new entry land — so it finds the row however late it
-  // mounts — and never again after, the nonce recording the ask it last brought into view.
+  // again as the unfold, the new entry and the desk rows land — the chart can still be
+  // loading after a company switch, and with it the desk rows mount a render or more late —
+  // and never again after, the nonce recording the ask it last brought into view.
   useEffect(() => {
     if (locate === null || scrolledLocate.current === locate.nonce) return;
     const row = document.querySelector(`[data-session-id="${locate.sessionId}"]`);
     if (row === null) return;
     scrolledLocate.current = locate.nonce;
     row.scrollIntoView({ block: "nearest" });
-  }, [locate, desksOpen, tempOpen, tempRows]);
+  }, [locate, desks, desksOpen, tempOpen, tempRows]);
   // Nothing has been read for this organization yet: a skeleton, not an "empty" claim.
   const chartFailed = company.orgChart === null && company.orgChartError !== null;
   const loading = company.orgChart === null && orgSessions === undefined && !chartFailed;

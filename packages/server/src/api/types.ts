@@ -2021,6 +2021,14 @@ export interface HarnessStatusSession {
    * rows with the machine that answered, so the browser-facing rows always name their owner.
    */
   machineId: string | null;
+  /**
+   * The organization this Session belongs to — a desk's, or a ticket session's — or null for
+   * every Session no organization holds (a development conversation, a CLI row) and for a row
+   * from a build before this field existed. The answering server reads its own organization
+   * caches, so a machine's answer carries its own rows' organizations, exactly as it carries
+   * its own machine id.
+   */
+  orgId: string | null;
 }
 
 /** POST /api/harness-status — the status bar's single poll (admin-only). */

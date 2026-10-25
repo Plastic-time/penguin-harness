@@ -18,7 +18,10 @@
  * server's poll from recursing through a machine that lists it back). A machine that cannot
  * answer — not connected, or a build from before this route existed — contributes nothing
  * silently: its share is simply missing until it is connected and current, the same deal
- * every other machine surface makes with an unreachable server.
+ * every other machine surface makes with an unreachable server. Each row names the machine it
+ * lives on, and the organization that holds it when one does (`orgId`, from the answering
+ * server's own caches) — the pair the bar's click needs to take the shell to the company a
+ * Session belongs to before it asks the sidebar to locate the row.
  *
  * The bar polls at a human cadence and pauses while the tab is hidden, so the route is
  * read-only and serves the local system sampler's cached answer (services/system-status.ts).
@@ -36,6 +39,7 @@ import { HttpError } from "../errors.js";
 import { badRequest, readJson } from "../validate.js";
 import { Bind, Component, Use } from "@prismshadow/penguin-core/kernel";
 import type { SessionIndex } from "../../mechanisms/sessions.js";
+import type { OrgCache } from "../../mechanisms/organization.js";
 import { Sessions as ManagerIface } from "../../runtime/session-manager.js";
 import type { Machines } from "../../machines/service.js";
 import type { SystemStatus } from "../../services/system-status.js";
@@ -47,6 +51,12 @@ export interface HarnessStatusRouteDeps {
   system: SystemStatus;
   /** The machines this server holds out to; the fan-out asks each one's own copy of this route. */
   machines: Pick<Machines, "connectedApis">;
+  /**
+   * The organization caches, for the `orgId` each row carries: the desk ledger and the
+   * tickets' sessions, projected (reconcile.ts), so a point query names the organization a
+   * Session belongs to — the fact the bar's click needs to reach the right company.
+   */
+  orgCache: Pick<OrgCache, "ownerOfSession">;
 }
 
 /** How many opened ids one poll may name — the same cap the bar's own sets keep. */
@@ -139,6 +149,10 @@ function sessionOf(raw: unknown): HarnessStatusSession | null {
     status: row.status as HarnessStatusSession["status"],
     lastActiveAt: row.lastActiveAt,
     machineId: null,
+    // Lenient on purpose: an organization id is a free string, so only its type can be
+    // wrong — a machine from a build before this field sends none, and a wrong-typed one
+    // costs the click its company, not the row its place in the list.
+    orgId: typeof row.orgId === "string" ? row.orgId : null,
   };
 }
 
@@ -191,6 +205,10 @@ function localShare(
         status,
         lastActiveAt: row.lastActiveAt,
         machineId: null,
+        // Which organization holds the Session, when one does — the answering server's own
+        // caches say (a machine's answer says it for its own rows the same way), so the
+        // bar's click knows which company's column to reach.
+        orgId: deps.orgCache.ownerOfSession(row.sessionId)?.orgId ?? null,
       });
     }
   }
@@ -283,6 +301,7 @@ export class HarnessStatusRoutes {
   @Use() private readonly manager!: ManagerIface;
   @Use() private readonly system!: SystemStatus;
   @Use() private readonly machines!: Machines;
+  @Use() private readonly orgCache!: OrgCache;
   @Bind("harness-status.routes") routes!: Hono<AppEnv>;
   setup() {
     this.routes = harnessStatusRoutes({
@@ -290,6 +309,7 @@ export class HarnessStatusRoutes {
       manager: this.manager,
       system: this.system,
       machines: this.machines,
+      orgCache: this.orgCache,
     });
   }
 }

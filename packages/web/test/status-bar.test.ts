@@ -45,6 +45,7 @@ function row(sessionId: string, over: Partial<HarnessStatusSession> = {}): Harne
     status: "idle",
     lastActiveAt: "2026-10-22T01:00:00Z",
     machineId: null,
+    orgId: null,
     ...over,
   };
 }

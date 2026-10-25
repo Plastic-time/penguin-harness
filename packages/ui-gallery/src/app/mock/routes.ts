@@ -246,6 +246,7 @@ router.post("/api/harness-status", ({ store, body }): HarnessStatusResponse => {
       status: s.status,
       lastActiveAt: s.lastActiveAt,
       machineId: null,
+      orgId: null,
     }));
   return {
     running: store.f.sessions.filter((s) => s.status !== "idle").length,

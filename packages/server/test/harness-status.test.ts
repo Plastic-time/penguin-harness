@@ -14,6 +14,10 @@
  *   answered, and its load lands in `machines`. A machine that answers 404 (a build from
  *   before this route) or garbage contributes nothing; an `own` request of our own asks no
  *   machine at all.
+ * - Each row names the organization that holds it (`orgId`): this server's rows read its own
+ *   caches — a desk's Session, a ticket's, or null when no organization holds it — and a
+ *   machine's rows say whatever that machine said for them, a wrong-typed id costing the row
+ *   its company, never its place in the list.
  * - The system sampler's pure half: a utilization delta is a ratio of the two readings
  *   (all-idle 0, all-busy 100, mixed exact, an idle core's zero window is fine), a zero or
  *   backwards delta is null rather than a divide-by-zero, mismatched shapes are null; the
@@ -131,6 +135,25 @@ describe("harness status bar (POST /api/harness-status)", () => {
     expect(body).not.toHaveProperty("total");
   });
 
+  it("stamps each row with the organization that holds it", async () => {
+    // The caches a reconcile pass would have projected, seeded by hand: one organization's
+    // desk Session, another's ticket Session — and sess-150, which no organization holds.
+    // The poll names all three: each row carries the company a click can be taken to, or
+    // null when there is none — the reach is a fact of the row, not of the click.
+    t.deps.orgCacheRepo.syncDeskSessions("p1", "acme", [
+      { sessionId: "sess-002", agentId: "agent-acme", current: true },
+    ]);
+    t.deps.orgCacheRepo.addTicketSession("p2", "globex", "t-1", "sess-147", "agent-globex");
+    const res = await admin.post("/api/harness-status", {
+      open: ["sess-002", "sess-147", "sess-150"],
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as HarnessStatusResponse;
+    expect(body.sessions.find((s) => s.sessionId === "sess-002")?.orgId).toBe("acme");
+    expect(body.sessions.find((s) => s.sessionId === "sess-147")?.orgId).toBe("globex");
+    expect(body.sessions.find((s) => s.sessionId === "sess-150")?.orgId).toBeNull();
+  });
+
   it("answers an active row nobody opened, and never an idle one nobody opened", async () => {
     // Two rows the request never named are made running, the rest of the harness stays idle.
     // The list's active half is the harness's own truth, so the running ones ride the answer
@@ -171,7 +194,8 @@ describe("harness status bar (POST /api/harness-status)", () => {
     expect(error.error.code).toBe("bad_request");
   });
 
-  /** A machine's share as a stub client would hand it: fixed numbers, its rows stamped null. */
+  /** A machine's share as a stub client would hand it: fixed numbers, its row naming the
+   * organization that machine holds it for. */
   const remoteShare = (over: Partial<Record<string, unknown>> = {}) => ({
     running: 2,
     sessions: [
@@ -185,6 +209,7 @@ describe("harness status bar (POST /api/harness-status)", () => {
         status: "running",
         lastActiveAt: "2026-10-22T01:00:00.000Z",
         machineId: null,
+        orgId: "acme",
       },
     ],
     system: { cpuPercent: 11.1, memoryUsedBytes: 1_000, memoryTotalBytes: 2_000 },
@@ -218,6 +243,9 @@ describe("harness status bar (POST /api/harness-status)", () => {
     const remote = body.sessions.find((s) => s.sessionId === "sess-remote-001");
     expect(remote?.machineId).toBe("m-remote");
     expect(remote?.status).toBe("running");
+    // The organization the machine named for its own row rides the answer whole, exactly as
+    // the machine answered it — each machine speaks for the Sessions it holds.
+    expect(remote?.orgId).toBe("acme");
     const local = body.sessions.find((s) => s.sessionId === "sess-150");
     expect(local?.machineId).toBeNull();
     // The machine's own load rides the answer under its own id and alias.
@@ -238,6 +266,45 @@ describe("harness status bar (POST /api/harness-status)", () => {
         timeoutMs: 4_000,
       },
     ]);
+  });
+
+  it("a machine's wrong-typed orgId reads null, keeping its row in the list", async () => {
+    fleet = [
+      {
+        machineId: "m-typed",
+        alias: "typed-box",
+        api: {
+          request: async () => ({
+            status: 200,
+            text: JSON.stringify(
+              remoteShare({
+                sessions: [
+                  {
+                    sessionId: "sess-remote-002",
+                    projectId: "pm",
+                    agentId: "general",
+                    title: "the far side",
+                    workspace: "/remote/ws",
+                    client: "org",
+                    status: "running",
+                    lastActiveAt: "2026-10-22T01:00:00.000Z",
+                    machineId: null,
+                    orgId: 42, // a machine that types it wrong: the row stays, the company goes
+                  },
+                ],
+              }),
+            ),
+          }),
+        },
+      },
+    ];
+    const res = await admin.post("/api/harness-status", { open: [] });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as HarnessStatusResponse;
+    const remote = body.sessions.find((s) => s.sessionId === "sess-remote-002");
+    // The wrong type costs the click its company, not the row its place in the list.
+    expect(remote?.orgId).toBeNull();
+    expect(remote?.machineId).toBe("m-typed");
   });
 
   it("a machine answering 404 or garbage contributes nothing", async () => {

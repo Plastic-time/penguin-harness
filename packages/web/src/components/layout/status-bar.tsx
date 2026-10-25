@@ -25,7 +25,9 @@
  * at it again. A row the user has NOT opened is the active half's own: it rides the list only
  * while the poll still reports it active — no x, no mark, nothing kept — and one click moves
  * it into the opened half with every current semantic (the sidebar is asked to locate it
- * too, so the left column follows the jump: its desk's row, or its conversation's).
+ * too, so the left column follows the jump: its desk's row, or its conversation's — and a
+ * row whose company is not the one on screen takes the sidebar there first, the ask kept
+ * waiting for that company's rows to mount and answer it).
  */
 import { useEffect, useRef, useState } from "react";
 import { useMatch, useNavigate } from "react-router";
@@ -45,6 +47,7 @@ import {
   OPENED_KEY,
   IdSet,
   byLatest,
+  companyOfRow,
   gigabytes,
   loadIdSet,
   marksForTransitions,
@@ -56,6 +59,8 @@ import {
 import { locateSessionInSidebar } from "../../lib/sidebar-locate";
 import { rememberSessionMachine } from "../../lib/session-machines";
 import { toneDot } from "../../lib/tone";
+import { useCompany } from "../../state/company";
+import { orgKey } from "../../features/company/company-nav";
 
 /** One poll every 10 seconds: a status bar cadence, not a monitoring one. */
 const POLL_MS = 10_000;
@@ -67,6 +72,12 @@ export function StatusBar() {
   const navigate = useNavigate();
   /** The Session the shell is on, if it is on one (the draft page's ids are not Sessions). */
   const routeSessionId = useMatch("/chat/:sessionId")?.params.sessionId ?? null;
+  /**
+   * The shell's company side, for the click's reach: which organization the sidebar stands on,
+   * and the organizations this shell can show at all — the pair that says whether a row's
+   * company is somewhere the sidebar can be taken to.
+   */
+  const company = useCompany();
 
   /** The harness's last answer; null until the first poll lands (and forever on a 403). */
   const [data, setData] = useState<HarnessStatusResponse | null>(null);
@@ -178,12 +189,24 @@ export function StatusBar() {
    * A row's click: open the Session, and ask the sidebar to catch up — the left column
    * locates what the jump landed on (its desk's row in company mode, its conversation's in
    * development mode), so the two halves of the shell never disagree about where the user
-   * is. The row itself carries what the locate needs: the employee's Agent for a company
-   * Session, and a title to fall back on.
+   * is. A row of a company the sidebar is not on takes it there first: `companyOfRow` names
+   * that company only when the shell's own list holds it, and both setters are no-ops when
+   * the shell already stands there, so a row of the company on screen only jumps. The row
+   * itself carries what the locate needs: the employee's Agent for a company Session, and a
+   * title to fall back on.
    */
   const open = (row: HarnessStatusSession) => {
     setListOpen(false);
     navigate(`/chat/${row.sessionId}`);
+    // The reach before the ask: the sidebar has to be on the row's company for the ask to
+    // be answerable, so it is moved there first (entering company mode if the shell is in
+    // development), and the ask — held by the locate store until a sidebar can answer —
+    // waits out the switch and lands on that company's rows.
+    const target = companyOfRow(row, company.organizations);
+    if (target !== null && company.available) {
+      company.setWorkMode("company");
+      company.setCurrentOrg(orgKey(target.projectId, target.orgId));
+    }
     locateSessionInSidebar(row.sessionId, row.agentId, row.title);
   };
 
