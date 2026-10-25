@@ -3,7 +3,7 @@
 - **Date:** 2026-10-20
 - **Type:** refactor
 - **Scope:** `server`, `web`, `docs`
-- **Breaking:** yes — API 套接字的打开地址是 `GET /api/socket`；`GET /api/terminals/api-socket@<userId>/stream` 不再应答
+- **PR:** [#1272](https://github.com/Prism-Shadow/penguin-harness/pull/1272)
 
 [English](2026-10-20-api-socket-own-route.md)
 
@@ -17,4 +17,6 @@ API 套接字从终端流的命名空间里搬了出来。它有了自己的一�
 
 ## 兼容性
 
-- `GET /api/terminals/api-socket@<userId>/stream` 不再是一条 upgrade 路由：终端流处理器把这个 id 当作未知终端，以 `404` 拒绝握手。写死了旧路径的客户端应改用 `@prismshadow/penguin-server/api` 的 `apiSocketPath()`。
+- 没有任何已发布版本在旧路径上打开过 API 套接字：这个套接字（[每个标签页一个 API 套接字](2026-09-07-single-socket.zh.md)）从 0.2.17 起才随版本发布，地址是 `GET /api/socket`。只有 [#912](https://github.com/Prism-Shadow/penguin-harness/pull/912) 到本次改动之间的 `main` 构建用过 `GET /api/terminals/api-socket@<userId>/stream`。
+- 该路径不再是一条 upgrade 路由：终端流处理器把这个 id 当作未知终端，以 `404` 拒绝握手。写死了它的客户端应改用 `@prismshadow/penguin-server/api` 的 `apiSocketPath()`。
+- 0.2.16 及更早版本的机器在两条路径上都没有 API 套接字，把机器更新到 0.2.17 后才有。

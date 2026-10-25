@@ -3,7 +3,7 @@
 - **Date:** 2026-10-20
 - **Type:** refactor
 - **Scope:** `server`, `web`, `docs`
-- **Breaking:** yes — the API socket is opened at `GET /api/socket`; `GET /api/terminals/api-socket@<userId>/stream` no longer answers
+- **PR:** [#1272](https://github.com/Prism-Shadow/penguin-harness/pull/1272)
 
 [中文版](2026-10-20-api-socket-own-route.zh.md)
 
@@ -17,4 +17,6 @@ The API socket moved out of the terminal stream's namespace. It has one upgrade 
 
 ## Compatibility
 
-- `GET /api/terminals/api-socket@<userId>/stream` is no longer an upgrade route: the terminal stream handler treats the id as an unknown terminal and refuses the handshake with `404`. A client that hard-coded the old path asks `apiSocketPath()` in `@prismshadow/penguin-server/api` instead.
+- No release opened the API socket at the old path: the socket ([one API socket per tab](2026-09-07-single-socket.md)) first ships in 0.2.17, at `GET /api/socket`. Only builds of `main` between [#912](https://github.com/Prism-Shadow/penguin-harness/pull/912) and this change used `GET /api/terminals/api-socket@<userId>/stream`.
+- That path is no longer an upgrade route: the terminal stream handler treats the id as an unknown terminal and refuses the handshake with `404`. A client that hard-coded it asks `apiSocketPath()` in `@prismshadow/penguin-server/api` instead.
+- A machine on 0.2.16 or earlier has no API socket at either path; updating the machine to 0.2.17 gives it the socket.
