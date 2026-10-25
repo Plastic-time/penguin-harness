@@ -45,37 +45,12 @@ export const en: Strings = {
   },
 
   hero: {
-    positioning: "Unified and Stable RSI Framework",
-    badge: "for free",
-    /**
-     * No-break spaces keep each "any …" pair on one line, and each dot at the end of its line,
-     * when a phone wraps the tagline.
-     */
-    automation:
-      "Fully automatic optimization: any\u00a0model\u00a0· any\u00a0algorithm\u00a0· any\u00a0benchmark",
+    slogan: ["Software that keeps growing.", "Evolution within reach."],
+    subtitle: "A free, stable RSI framework for agents",
     downloadCta: "Download desktop",
     cliInstall: "Command-line install",
-    stats: [
-      { value: "Cross-platform", label: "Linux · Windows · macOS" },
-      { value: "100% open source", label: "Apache 2.0 licensed" },
-      {
-        value: "First self-improving harness",
-        label: "A native agent self-evolution engine",
-      },
-    ],
-    supportedModelsCount: "1000+",
-    supportedModelsLabel: "Supported Models",
-    supportedModelsMore: "and more",
-    algorithmsLabel: "RSI Algorithms",
-    benchmarksLabel: "Benchmarks",
-    benchmarkKinds: [
-      "Data analysis",
-      "Software engineering",
-      "Business automation",
-      "Scientific research",
-      "Terminal tasks",
-      "Agent self-evolution",
-    ],
+    modelsMore: "and 1000+ models",
+    startFrame: "Start page (live demo)",
     externalLink: {
       title: "You're about to open an external link",
       body: "This link goes to a site outside PenguinHarness and opens in a new tab:",
@@ -403,11 +378,12 @@ penguin run --message "Analyze data.csv and summarize quarterly sales"`,
   },
 
   footer: {
-    tagline: "Unified and Stable RSI Framework.",
+    tagline: "A free, stable RSI framework for agents",
     product: "Product",
     resources: "Resources",
+    a2app: "A2APP",
+    evolve: "Self-evolution",
     quickstart: "Quick start",
-    cases: "Cases",
     blog: "Blog",
     repo: "GitHub repository",
     docs: "Documentation",

@@ -22,7 +22,13 @@ export function Footer() {
         {
           title: S.footer.product,
           links: [
-            { id: "cases", href: "/#cases", label: S.footer.cases, render: routeLink },
+            { id: "a2app", href: "/#a2app", label: S.footer.a2app, render: routeLink },
+            {
+              id: "self-evolution",
+              href: "/#self-evolution",
+              label: S.footer.evolve,
+              render: routeLink,
+            },
             {
               id: "quickstart",
               href: "/#quickstart",
