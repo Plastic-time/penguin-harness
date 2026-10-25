@@ -147,54 +147,79 @@ export const en: Strings = {
 
   showcase: {
     start: "Start page (live demo)",
-    evolve: {
-      title: "Start agent self-evolution with one sentence",
-      text: "Name the agent, the Benchmark and the target score. PenguinHarness edits the agent, evaluates it again, and keeps the version that scores higher.",
-      link: "How self-evolution works",
-      frame: "A self-evolution round in a conversation (live demo)",
-    },
-    evaluate: {
-      title: "Every version gets a score",
-      text: "Each evaluation on a Benchmark adds a point to its agent and model's line, so the better version is plain to see.",
-      link: "About the Evaluation Center",
-      frame: "A Benchmark in the Evaluation Center (live demo)",
-    },
-    toolkits: {
-      title: "Self-evolution algorithms are added as plugins",
-      text: (names: string) =>
-        `Besides the default loop, ${names} each come as a toolkit that runs the algorithm the way its paper describes.`,
-      link: "Browse the plugin library",
-      frame: "The plugin market (live demo)",
-    },
   },
 
-  selfImprove: {
-    title: "A multi-agent self-evolution framework",
+  evolve: {
+    title: "Self-evolution you can watch",
     subtitle:
-      "By default the General Agent runs the optimization Skill. Each round it makes one change to the tested agent. Evaluator subagents running the evaluation Skill score the changed agent on every case of the Benchmark.",
-    nodeOptimizer: "Optimizer",
-    nodeEvaluator: "Evaluator × N",
-    nodeTarget: "Tested agent",
-    edgeSpawn: "dispatch in parallel",
-    edgeFeedback: "scores & Traces",
-    edgeBench: "run & score each case",
-    edgeImprove: "edit AGENTS.md, a Skill or config",
-    noteOld: "snapshot before editing",
-    noteNew: "kept only if the score is higher",
-    trends: [
-      { label: "Score", hint: "out of 100" },
-      { label: "Cost", hint: "per run" },
-      { label: "Duration", hint: "per run" },
+      "Benchmarks score the agent across capabilities and state-of-the-art RSI algorithms improve it round by round. Every version's score, cost and time is on the record, and only a higher score is kept.",
+    player: {
+      label: "Example run",
+      round: (n: number) => `Round ${n}`,
+      pause: "Pause",
+      play: "Play",
+      steps: {
+        reference: "Reference",
+        trace: "Read the weakest case's Trace",
+        snapshot: "Hypothesis and snapshot",
+        change: "One change",
+        evaluate: "Evaluator × N in parallel",
+        decide: "Compare and decide",
+        append: "Append to the scoreboard",
+      },
+      dimensions: {
+        analysis: "Data analysis",
+        engineering: "Software engineering",
+        automation: "Business automation",
+        terminal: "Terminal tasks",
+      },
+      rules: {
+        automationFields:
+          "“In an automation task, list the APIs to call and their required fields first, and fill any gap before running”",
+        testsFirst:
+          "“Run the existing tests before changing code, and note which ones already fail”",
+      },
+      running: "running",
+      kept: "kept",
+      rolledBack: "rolled back",
+      notAppended: "not appended",
+      chart: "Scoreboard",
+      candidate: "candidate",
+      versionLabel: "Version",
+      score: "Score",
+      cost: "Cost",
+      duration: "Duration",
+      perCase: "/ case",
+      version: (n: number) => `v${n}`,
+      chartLabel: (series: string, points: readonly string[], candidate: string | null) =>
+        `Scoreboard, ${series}: ${points.join(", ")}${candidate === null ? "" : `; candidate ${candidate}`}`,
+    },
+    algorithmsLabel: "RSI algorithms",
+    algorithmDescriptions: {
+      "default-rsi-toolkit": "trial, reflect, improve",
+      "opro-rsi-toolkit": "optimize an instruction from scores",
+      "ape-rsi-toolkit": "induce an instruction from examples",
+      "ace-rsi-toolkit": "evolve a playbook from Traces",
+      "awm-rsi-toolkit": "induce workflows from trajectories",
+    },
+    benchmarksLabel: "Benchmarks",
+    benchmarkKinds: [
+      "Data analysis",
+      "Software engineering",
+      "Business automation",
+      "Scientific research",
+      "Terminal tasks",
+      "Agent self-evolution",
     ],
-    trendsNote:
-      "The scoreboard records each version's score, cost and duration. The values here are illustrative.",
-    demo: {
+    recording: {
       caption:
-        "Demo: a decision agent is evaluated, revises its working method once and is retested on the same model. Its score goes from 84 to 100.",
+        "A decision agent is evaluated, revises its working method once and is retested on the same model. Its score goes from 84 to 100.",
       cost: "Six test-agent runs cost $0.0373, not counting Benchmark creation, scoring or the optimizer.",
     },
-    diagramLabel:
-      "One round of self-evolution: the Optimizer runs agent-optimization and dispatches Evaluator subagents running agent-evaluation. They run the tested agent on each Benchmark case and score it. From the scores and Traces, the Optimizer edits version N into version N+1. Version N+1 is kept only if its score is higher. Version N is saved as a snapshot before it is edited.",
+    links: {
+      how: "How self-evolution works",
+      center: "About the Evaluation Center",
+    },
   },
 
   quickstart: {

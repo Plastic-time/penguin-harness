@@ -149,58 +149,83 @@ export const zh = {
     loading: "正在载入实时演示…",
   },
 
-  /** The app live under the hero, and the three rows beside it (sections/showcase.tsx). */
+  /** The app live under the hero (sections/hero.tsx names its frame for assistive technology). */
   showcase: {
-    /** Each `frame` names its frame for assistive technology. */
     start: "开始页（实时演示）",
-    evolve: {
-      title: "一句话启动 Agent 自进化",
-      text: "说出要优化的智能体、评估集和目标分数，PenguinHarness 就会修改它、重新评测，分数更高才保留。",
-      link: "自进化怎么运作",
-      frame: "一轮自进化的对话（实时演示）",
-    },
-    evaluate: {
-      title: "每个版本都有分数",
-      text: "同一套 Benchmark 上的每次评测，按智能体和模型连成一条线，哪一版更好一眼可见。",
-      link: "了解评估中心",
-      frame: "评估中心里的一套 Benchmark（实时演示）",
-    },
-    toolkits: {
-      title: "自进化算法通过插件接入",
-      /** `names`: the paper toolkits, already listed (OPRO、APE、…). */
-      text: (names: string) => `除了默认循环，${names} 各自是一个工具包，按原论文的流程运行。`,
-      link: "浏览插件库",
-      frame: "插件市场（实时演示）",
-    },
   },
 
-  /** The self-evolution loop and its three recorded numbers (sections/self-improve.tsx). */
-  selfImprove: {
-    title: "多智能体协同的自进化框架",
+  /**
+   * Observable self-evolution (sections/evolve.tsx): two replayed rounds of the Default loop
+   * beside the scoreboard they write, the algorithms and Benchmarks, the recorded demo.
+   */
+  evolve: {
+    title: "可观测的自进化",
     subtitle:
-      "默认由 General Agent 运行优化 Skill，每一轮只改被测 Agent 的一处；Evaluator 子 Agent 运行评估 Skill，在 Benchmark 的每个题目上给修改后的 Agent 打分。",
-    nodeOptimizer: "Optimizer",
-    nodeEvaluator: "Evaluator × N",
-    nodeTarget: "被测 Agent",
-    edgeSpawn: "并行派发",
-    edgeFeedback: "分数与 Trace",
-    edgeBench: "逐题运行并打分",
-    edgeImprove: "修改 AGENTS.md、Skill 或配置",
-    noteOld: "修改前先保存快照",
-    noteNew: "只有分数更高才保留",
-    /** Index-aligned with TRENDS in sections/self-improve.tsx. */
-    trends: [
-      { label: "分数", hint: "满分 100" },
-      { label: "成本", hint: "每次运行" },
-      { label: "耗时", hint: "每次运行" },
-    ],
-    trendsNote: "记分板会记录每个版本的分数、成本和耗时。这里的数值仅为示意。",
-    demo: {
-      caption: "演示：决策智能体经过评测、一次工作方法改进和同模型复测，分数从 84 提升到 100。",
+      "在多维能力评估集上给 Agent 打分，用前沿 RSI 算法逐轮改进；每个版本的分数、成本和耗时都有记录，更高才保留。",
+    player: {
+      label: "示例运行",
+      round: (n: number) => `第 ${n} 轮`,
+      pause: "暂停",
+      play: "播放",
+      /** One per row of a round, keyed by lib/evolve-replay.ts ROWS. */
+      steps: {
+        reference: "参照版本",
+        trace: "读取最弱用例的 Trace",
+        snapshot: "假设与快照",
+        change: "一处修改",
+        evaluate: "Evaluator × N 并行评测",
+        decide: "比较并决定",
+        append: "写入记分板",
+      },
+      /** The Benchmark's capability dimensions, keyed by lib/evolve-demo.ts Dimension. */
+      dimensions: {
+        analysis: "数据分析",
+        engineering: "软件工程",
+        automation: "业务自动化",
+        terminal: "终端任务",
+      },
+      /** The rule a change adds to AGENTS.md, keyed by lib/evolve-demo.ts ChangeRule. */
+      rules: {
+        automationFields: "「自动化任务先列出要调用的接口和必填字段，缺的字段先补齐再执行」",
+        testsFirst: "「改代码前先运行现有测试，记下已经失败的用例」",
+      },
+      running: "运行中",
+      kept: "保留",
+      rolledBack: "回滚",
+      notAppended: "不写入",
+      chart: "记分板",
+      candidate: "候选",
+      versionLabel: "版本",
+      score: "分数",
+      cost: "成本",
+      duration: "耗时",
+      /** After an average: the scoreboard stores cost and duration per case run. */
+      perCase: "/ 题",
+      version: (n: number) => `v${n}`,
+      /** The chart for assistive technology: the line's label, its points, and a candidate on it. */
+      chartLabel: (series: string, points: readonly string[], candidate: string | null) =>
+        `记分板，${series}：${points.join("、")}${candidate === null ? "" : `；候选 ${candidate}`}`,
+    },
+    algorithmsLabel: "自进化算法",
+    /** One per RSI_TOOLKITS plugin, from its package.json `short_description_zh`. */
+    algorithmDescriptions: {
+      "default-rsi-toolkit": "试跑、反思、提升",
+      "opro-rsi-toolkit": "由分数优化指令",
+      "ape-rsi-toolkit": "从示例归纳指令",
+      "ace-rsi-toolkit": "从轨迹进化规则手册",
+      "awm-rsi-toolkit": "从轨迹归纳工作流",
+    } as Record<string, string>,
+    benchmarksLabel: "评估集",
+    /** One per BENCHMARKS entry, in its order (the benchmarks of Sec A to Sec E, then GDPevo): the kind of each. */
+    benchmarkKinds: ["数据分析", "软件工程", "业务自动化", "科学研究", "终端任务", "Agent 自进化"],
+    recording: {
+      caption: "决策智能体经过评测、一次工作方法改进和同模型复测，分数从 84 提升到 100。",
       cost: "被测 Agent 的 6 次运行花费 $0.0373，不含出题、评分和优化的成本。",
     },
-    diagramLabel:
-      "一轮自进化：Optimizer 运行 agent-optimization，并派发运行 agent-evaluation 的 Evaluator 子 Agent。它们在每个 Benchmark 题目上运行被测 Agent 并打分。Optimizer 根据分数和 Trace 把版本 N 修改为版本 N+1。只有分数更高，版本 N+1 才会保留。版本 N 在修改前会先保存为快照。",
+    links: {
+      how: "自进化怎么运作",
+      center: "了解评估中心",
+    },
   },
 
   quickstart: {
