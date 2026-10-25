@@ -40,12 +40,12 @@ docker run -d --name penguin -p 127.0.0.1:7364:7364 -v penguin-data:/data hiyoug
 
 `/api/amsp/v1` keeps its path, but its stream is now the records the Session's Trace stores, in their envelope `{timestamp, type, payload, origin?}`, plus the `partial_*` fragments. The only control frames are `event: ping` (`{}`, at once and every 20 s) and a run stream's closing `data: [DONE]`. A new Session's id is in its first `session_meta` record.
 
-A program can now follow a Session it did not start:
+A program can now follow a Session it did not start; the paths below are under `/api/amsp/v1`:
 
-- `GET sessions/:id/stream` resumes from `Last-Event-ID`. When that id has left the buffer or the server restarted, it answers `409 resync_required`.
-- `GET sessions/:id/messages` and `GET sessions/:id/trace-image` read the history.
-- `GET sessions/:id/approvals[?wait=1–60]` long-polls the tool calls waiting on a decision.
-- `POST sessions/:id/tasks` starts a run without holding the connection: `202`, or `409` while the Session is busy. It is never queued.
+- `GET /sessions/:id/stream` resumes from `Last-Event-ID`. When that id has left the buffer or the server restarted, it answers `409 resync_required`.
+- `GET /sessions/:id/messages` and `GET /sessions/:id/trace-image` read the history.
+- `GET /sessions/:id/approvals[?wait=1–60]` long-polls the tool calls waiting on a decision.
+- `POST /sessions/:id/tasks` starts a run without holding the connection: `202`, or `409` while the Session is busy. It is never queued.
 
 A signed-in reader gets the same stream at `GET /api/sessions/:id/amsp` and the approvals at `GET /api/sessions/:id/approvals`.
 
@@ -59,7 +59,7 @@ Behind the stream, every Task is wrapped in `task_begin` / `task_end`, a Request
 
 A reply can draw a `chart` block: `line`, `area` (optionally stacked), `bar` (grouped, stacked or horizontal), `pie` (optionally a donut), `scatter`, `histogram` or `gauge`, with categories × 1–6 series and units on the axes. A `resources` block shows one machine's CPU, memory, swap, disks, network, load and uptime, and the `a2ui` skill's `scripts/sysinfo.mjs` prints one. The metrics and weather widgets were rebuilt on the same charts.
 
-![A reply that draws a chart block](https://raw.githubusercontent.com/Prism-Shadow/penguin-harness-community/main/blog-assets/penguinharness-0-2-17-a2ui-charts-en.png)
+![A reply with a bar chart of last week's CI build times and a resources board for build-01](https://raw.githubusercontent.com/Prism-Shadow/penguin-harness-community/main/blog-assets/penguinharness-0-2-17-a2ui-charts-en.png)
 
 Forms gain eleven field kinds: `text`, `textarea`, `number`, `slider`, `single`, `multiple`, `select`, `switch`, `date`, `time` and `datetime`, with `hint`, `maxLength`, `pattern` and `default`, and one rule for whether an answer is valid. They are drawn with the UI package's controls in all three themes. An answered form or choice shows the answers after a reload, in older conversations too; nothing new is stored.
 
