@@ -1,11 +1,11 @@
 /**
- * The hero's catalogue rows ↔ their sources. RSI_TOOLKITS must name exactly the library plugins
- * whose package.json files them under the `rsi` category, and BENCHMARKS exactly core's built-in
- * Benchmarks, one entry per upstream repository core records for them, linked to it, so a new
- * toolkit or built-in, or a moved upstream, fails here instead of leaving the landing page behind. Every
- * link is absolute https, and only the Default toolkit has none; and both dictionaries carry one
- * kind per Benchmark and no derived count in the stat tiles (the hero derives the algorithm and
- * Benchmark counts from these lists).
+ * The landing's catalogue lists ↔ their sources. RSI_TOOLKITS must name exactly the library
+ * plugins whose package.json files them under the `rsi` category, and BENCHMARKS exactly core's
+ * built-in Benchmarks, one entry per upstream repository core records for them, linked to it, so a
+ * new toolkit or built-in, or a moved upstream, fails here instead of leaving the landing page
+ * behind. Every link is absolute https, and only the Default toolkit has none; and both
+ * dictionaries name the kind of every Benchmark and describe every toolkit, so a new entry in
+ * either list cannot ship as a blank on the page.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -60,7 +60,7 @@ const DICTIONARIES: ReadonlyArray<{ file: string; dict: Strings }> = [
   { file: "strings-en.ts", dict: en },
 ];
 
-describe("hero catalogue ↔ its sources", () => {
+describe("catalogue lists ↔ their sources", () => {
   it("RSI_TOOLKITS names exactly the library's rsi plugins", () => {
     expect(rsiPlugins.length).toBeGreaterThan(0);
     expect(RSI_TOOLKITS.map((toolkit) => toolkit.plugin).sort()).toEqual(rsiPlugins);
@@ -98,10 +98,10 @@ describe("hero catalogue ↔ its sources", () => {
   });
 
   for (const { file, dict } of DICTIONARIES) {
-    it(`${file} has one kind per Benchmark and no catalogue counts in the stat tiles`, () => {
-      expect(dict.hero.benchmarkKinds).toHaveLength(BENCHMARKS.length);
-      for (const stat of dict.hero.stats) {
-        expect(stat.value).not.toMatch(/算法|Benchmark|Algorithms|Reproductions/);
+    it(`${file} names the kind of every Benchmark and describes every RSI toolkit`, () => {
+      expect(dict.evolve.benchmarkKinds).toHaveLength(BENCHMARKS.length);
+      for (const toolkit of RSI_TOOLKITS) {
+        expect(dict.evolve.algorithmDescriptions[toolkit.plugin], toolkit.plugin).toMatch(/\S/);
       }
     });
   }
