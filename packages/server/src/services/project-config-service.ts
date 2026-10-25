@@ -856,7 +856,7 @@ export class ProjectConfigService implements ProjectConfigStore {
    * Called once as the App starts, before the schedulers. A file that does not parse is left for
    * the next read that needs it to report. Exists for the one-time migrations alone, so it goes
    * with them at the 0.3.0 release preparation
-   * (changelog/unreleased/2026-10-15-backward-compatibility.md).
+   * (changelog/0.2.17/2026-10-15-backward-compatibility.md).
    */
   async migrateStoredConfigs(): Promise<void> {
     let entries: Dirent[];
