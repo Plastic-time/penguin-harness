@@ -3,6 +3,7 @@
 - **Date:** 2026-10-18
 - **Type:** process
 - **Scope:** `docs`
+- **PR:** [#1228](https://github.com/Prism-Shadow/penguin-harness/pull/1228)
 
 [中文版](2026-10-18-design-rfcs-into-main-repo.zh.md)
 

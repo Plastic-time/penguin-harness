@@ -1,7 +1,7 @@
 # The machine's environment-keys notice can be closed, and closable notices share one component
 
 - **Date:** 2026-10-15
-- **Type:** feat
+- **Type:** feature
 - **Scope:** `ui`, `web`, `server`, `ui-gallery`
 - **PR:** [#1156](https://github.com/Prism-Shadow/penguin-harness/pull/1156)
 

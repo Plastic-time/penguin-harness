@@ -24,7 +24,7 @@ that checks an agent harness. Its worked example is the `prompt-cache-*` suites 
   closes with the command that runs the suites and the docs link.
 - The numbers come from the suites' own helpers, run on the project's test machine with no model
   API: the suites' run time, the token counts after a harmless prompt edit, and the estimated
-  compaction-request cost with #700 reverted in two scenarios.
+  compaction-request cost with [#700](https://github.com/Prism-Shadow/penguin-harness/pull/700) reverted in two scenarios.
 - Five figures are drawn as inline SVG with the shared figure styles of
   [#1217](https://github.com/Prism-Shadow/penguin-harness/pull/1217) and reused as published: the
   silent regression, the test pipeline, and three comparisons of a rejected design with the chosen

@@ -1,7 +1,7 @@
 # Machine cards say their state in a labelled pill, and the Machines page lives in the shared UI package
 
 - **Date:** 2026-10-15
-- **Type:** feat
+- **Type:** feature
 - **Scope:** `ui`, `web`, `ui-gallery`
 - **PR:** [#1153](https://github.com/Prism-Shadow/penguin-harness/pull/1153)
 

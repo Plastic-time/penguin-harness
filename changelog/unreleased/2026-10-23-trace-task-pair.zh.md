@@ -3,7 +3,7 @@
 - **Date:** 2026-10-23
 - **Type:** feature
 - **Scope:** `core`, `server`, `web`, `docs`
-- **PR:** [#1299](https://github.com/Prism-Shadow/penguin-harness/pull/1299)
+- **PR:** [#1299](https://github.com/Prism-Shadow/penguin-harness/pull/1299), [#1304](https://github.com/Prism-Shadow/penguin-harness/pull/1304)
 
 [English](2026-10-23-trace-task-pair.md)
 

@@ -1,8 +1,9 @@
-# 设计 RFC 迁入主仓，落在 rfcs/ 面
+# 设计 RFC 迁入主仓，落在 rfcs/ 下
 
 - **Date:** 2026-10-18
 - **Type:** process
 - **Scope:** `docs`
+- **PR:** [#1228](https://github.com/Prism-Shadow/penguin-harness/pull/1228)
 
 [English](2026-10-18-design-rfcs-into-main-repo.md)
 

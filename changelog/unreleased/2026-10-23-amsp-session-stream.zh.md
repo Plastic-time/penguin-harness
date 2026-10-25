@@ -3,8 +3,8 @@
 - **Date:** 2026-10-23
 - **Type:** feature
 - **Scope:** `amsp`, `server`, `core`, `web`, `docs`
-- **PR:** [#1301](https://github.com/Prism-Shadow/penguin-harness/pull/1301)
-- **Breaking:** `/api/amsp/v1` 路径不变，流的形状改变：`run.*`、`K.delta` 与 `K.done` 事件让位于 Session 的记录，0.2.16 及更早的 `@prismshadow/amsp` 客户端读不懂新的流。本版本的 SDK（`^0.2.16` 的依赖会取到它）也读不懂旧服务端的流。
+- **PR:** [#1301](https://github.com/Prism-Shadow/penguin-harness/pull/1301), [#1308](https://github.com/Prism-Shadow/penguin-harness/pull/1308)
+- **Breaking:** yes — `/api/amsp/v1` 路径不变，流的形状改变：`run.*`、`K.delta` 与 `K.done` 事件让位于 Session 的记录，0.2.16 及更早的 `@prismshadow/amsp` 客户端读不懂新的流。本版本的 SDK（`^0.2.16` 的依赖会取到它）也读不懂旧服务端的流。
 
 [English](2026-10-23-amsp-session-stream.md)
 

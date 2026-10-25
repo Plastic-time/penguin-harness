@@ -3,8 +3,8 @@
 - **Date:** 2026-10-23
 - **Type:** feature
 - **Scope:** `amsp`, `server`, `core`, `web`, `docs`
-- **PR:** [#1301](https://github.com/Prism-Shadow/penguin-harness/pull/1301)
-- **Breaking:** `/api/amsp/v1` keeps its path, but its stream changes shape: `run.*`, `K.delta` and `K.done` events give way to the Session's records, and the `@prismshadow/amsp` client of 0.2.16 and earlier cannot read it. The SDK of this release, which a `^0.2.16` dependency picks up, cannot read an older server's stream.
+- **PR:** [#1301](https://github.com/Prism-Shadow/penguin-harness/pull/1301), [#1308](https://github.com/Prism-Shadow/penguin-harness/pull/1308)
+- **Breaking:** yes — `/api/amsp/v1` keeps its path, but its stream changes shape: `run.*`, `K.delta` and `K.done` events give way to the Session's records, and the `@prismshadow/amsp` client of 0.2.16 and earlier cannot read it. The SDK of this release, which a `^0.2.16` dependency picks up, cannot read an older server's stream.
 
 [中文版](2026-10-23-amsp-session-stream.zh.md)
 

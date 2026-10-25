@@ -1,7 +1,7 @@
 # 机器的环境变量密钥提示可以关掉，可关闭的提示共用一个组件
 
 - **Date:** 2026-10-15
-- **Type:** feat
+- **Type:** feature
 - **Scope:** `ui`, `web`, `server`, `ui-gallery`
 - **PR:** [#1156](https://github.com/Prism-Shadow/penguin-harness/pull/1156)
 

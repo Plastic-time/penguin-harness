@@ -3,7 +3,7 @@
 - **Date:** 2026-10-23
 - **Type:** refactor
 - **Scope:** `amsp`, `core`
-- **PR:** [#1300](https://github.com/Prism-Shadow/penguin-harness/pull/1300)
+- **PR:** [#1300](https://github.com/Prism-Shadow/penguin-harness/pull/1300), [#1304](https://github.com/Prism-Shadow/penguin-harness/pull/1304)
 
 [中文版](2026-10-23-amsp-protocol-types.zh.md)
 

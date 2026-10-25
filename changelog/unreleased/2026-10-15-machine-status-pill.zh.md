@@ -1,7 +1,7 @@
 # 机器卡片用带文字的状态胶囊表达状态，机器管理页的展示收进共享 UI 包
 
 - **Date:** 2026-10-15
-- **Type:** feat
+- **Type:** feature
 - **Scope:** `ui`, `web`, `ui-gallery`
 - **PR:** [#1153](https://github.com/Prism-Shadow/penguin-harness/pull/1153)
 

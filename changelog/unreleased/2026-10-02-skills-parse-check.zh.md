@@ -3,7 +3,7 @@
 - **Date:** 2026-10-02
 - **Type:** process
 - **Scope:** `skills`, `tooling`, `core`
-- **PR:** [#879](https://github.com/Prism-Shadow/penguin-harness/pull/879)
+- **PR:** [#879](https://github.com/Prism-Shadow/penguin-harness/pull/879), [#1320](https://github.com/Prism-Shadow/penguin-harness/pull/1320)
 
 [English](2026-10-02-skills-parse-check.md)
 
