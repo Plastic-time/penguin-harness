@@ -7,11 +7,7 @@
  *   2. Translating UniEvent[] into AmspRecord[] (partial_* ordering, complete messages,
  *      token_usage, tool_call_id passthrough).
  * As well as helper functions for token conversion, UniConfig construction, and retry
- * determination.
- * - Given a consumer that leaves generation early, the upstream request is aborted and closed.
- * - Given a user abort while output is suspended, upstream cleanup still runs when drained.
- * - Given a normal stop event, upstream cleanup runs without losing usage or aborting completion.
- * - Given upstream cleanup that throws, rejects or never settles, leaving the stream still ends.
+ * determination, and how streamGenerate releases the upstream when it is left before the stop.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -1411,7 +1407,7 @@ describe("GenerativeModel.streamGenerate outcome classification (PRN-013)", () =
     expect(released).toBe(true);
   });
 
-  it("closes the upstream iterator at normal completion while preserving billed usage", async () => {
+  it("leaves the upstream open after a received stop, preserving billed usage", async () => {
     let upstreamSignal: AbortSignal | undefined;
     let released = false;
     const model = new SeamModel(async function* (signal) {
@@ -1431,7 +1427,8 @@ describe("GenerativeModel.streamGenerate outcome classification (PRN-013)", () =
       request: { output: 7 },
     });
     expect(upstreamSignal?.aborted).toBe(false);
-    expect(released).toBe(true);
+    // Not returned: the transport may still be reading the stream's end after the stop.
+    expect(released).toBe(false);
   });
 
   it.each(["throw", "reject", "hang"])(

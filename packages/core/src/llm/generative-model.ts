@@ -1068,15 +1068,19 @@ export class GenerativeModel implements LLMInterface {
     } finally {
       clearTimer();
       userSignal?.removeEventListener("abort", onUserAbort);
-      // Leaving at a yield must cancel generation too, even without a caller-owned signal.
-      // A received stop is already committed and billed, so preserve its completion state.
-      if (!translator.stopped) ac.abort();
-      // Closing the upstream iterator releases its resources on every exit, including stop.
-      // Do not let a broken or unresponsive cleanup replace the outcome or hold it open.
-      try {
-        void Promise.resolve(it?.return?.()).catch(() => undefined);
-      } catch {
-        // A synchronous cleanup failure is no more authoritative than a rejected promise.
+      // Leaving before the stop (at a yield, on an error, or abandoning an upstream that never
+      // settled) must cancel generation, even without a caller-owned signal, and close the
+      // upstream iterator to release it. Once the stop arrived nothing is cancelled: the turn
+      // is committed and billed, and the transport may still be reading the stream's end
+      // (MMSP yields the stop before `[DONE]`); closing it here would drop the connection.
+      if (!translator.stopped) {
+        ac.abort();
+        // Do not let a broken or unresponsive cleanup replace the outcome or hold it open.
+        try {
+          void Promise.resolve(it?.return?.()).catch(() => undefined);
+        } catch {
+          // A synchronous cleanup failure is no more authoritative than a rejected promise.
+        }
       }
     }
 
