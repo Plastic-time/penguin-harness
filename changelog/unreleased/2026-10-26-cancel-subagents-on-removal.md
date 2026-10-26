@@ -3,6 +3,7 @@
 - **Date:** 2026-10-26
 - **Type:** fix
 - **Scope:** `server`
+- **PR:** [#1361](https://github.com/Prism-Shadow/penguin-harness/pull/1361)
 
 [中文版](2026-10-26-cancel-subagents-on-removal.zh.md)
 
