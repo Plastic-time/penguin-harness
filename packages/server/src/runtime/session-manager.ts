@@ -1043,10 +1043,13 @@ export class SessionManager {
 
   /** Publishes one live background-subagent message and records its usage (fire-and-forget; the child's own Trace is the durable record). */
   private forwardBackgroundMessage(entry: RuntimeEntry, msg: AmspRecord): void {
+    // A credential refresh can replace the parent runtime while its old child still runs.
+    // Publish through the current entry, but retain the child's original accounting context.
+    const current = this.entries.get(entry.sessionId);
     // A child producing messages IS session activity: without this stamp the idle sweep
     // measures only the launching task, and a long background run ages into eviction.
-    if (this.entries.get(entry.sessionId) === entry) {
-      entry.lastActivityMs = Date.now();
+    if (current) {
+      current.lastActivityMs = Date.now();
       this.deps.channels.get(entry.sessionId).publish(msg);
     } else if (this.deps.projects?.findById(entry.projectId) === null) return;
     // Removal ends presentation, not the accounting of an already-completed child request.

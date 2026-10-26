@@ -17,5 +17,8 @@ the runtime is removed, without publishing late child output to the removed Sess
 Deleting an entire Project still discards its usage history, including records arriving after
 a Session was removed earlier.
 
+Updating model configuration or credentials can rebuild a parent Session's runtime while its
+child is still running. The child's later output continues streaming to that Session.
+
 This preserves reported usage; it does not estimate unreported tokens or establish a provider's
 actual charge.
