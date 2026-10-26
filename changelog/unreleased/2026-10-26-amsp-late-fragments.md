@@ -3,6 +3,7 @@
 - **Date:** 2026-10-26
 - **Type:** fix
 - **Scope:** `amsp`
+- **PR:** [#1353](https://github.com/Prism-Shadow/penguin-harness/pull/1353)
 
 [中文版](2026-10-26-amsp-late-fragments.zh.md)
 
