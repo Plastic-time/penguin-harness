@@ -287,7 +287,14 @@ export class SessionReader {
       ).body;
     } catch (err) {
       if (this.#closed || epoch !== this.#epoch) return;
-      if (err instanceof AmspHttpError && err.status >= 400 && err.status < 500) {
+      // Timeouts and rate limits are transient, just as they are when opening the stream.
+      if (
+        err instanceof AmspHttpError &&
+        err.status >= 400 &&
+        err.status < 500 &&
+        err.status !== 408 &&
+        err.status !== 429
+      ) {
         this.#fail(err);
         return;
       }
