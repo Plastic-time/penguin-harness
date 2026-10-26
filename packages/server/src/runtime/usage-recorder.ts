@@ -18,6 +18,7 @@ import type { AmspRecord } from "@prismshadow/penguin-core";
 import { formatLocalDate } from "../internal/dates.js";
 import { Component, Use } from "@prismshadow/penguin-core/kernel";
 import type { Clock } from "../hmr/capabilities.js";
+import type { Projects } from "../mechanisms/projects.js";
 import type { UsageRecording, UsageStore } from "../mechanisms/observability.js";
 
 /** Attribution context for one record (top-level Session scope). */
@@ -44,6 +45,7 @@ export class UsageRecorder implements UsageRecording {
 
   @Use() private readonly usage!: UsageStore;
   @Use() private readonly clock!: Clock;
+  @Use() private readonly projects!: Projects;
 
   /** Standalone usage (such as titles) is billed without metering the Session's active request. */
   async record(
@@ -82,6 +84,15 @@ export class UsageRecorder implements UsageRecording {
     }
     const metered = this.requests.get(requestSessionId) === true;
     if (payload.type === "request_end") this.requests.delete(requestSessionId);
+    // Project deletion clears usage even when a request outlives the cleanup deadline.
+    // Session/Agent removal alone still retains usage while its Project exists.
+    if (
+      (payload.type === "token_usage" || payload.type === "request_end") &&
+      this.projects.findById(ctx.projectId) === null
+    ) {
+      this.requests.delete(requestSessionId);
+      return;
+    }
     // Empty origin → main session's Model; otherwise look up the mapping, falling back to the main Session's Model (paired) on a miss.
     const ref =
       originSessionId === null
