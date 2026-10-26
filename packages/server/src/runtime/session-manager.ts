@@ -107,7 +107,7 @@ import { loopbackHostRoles } from "../services/preview-token.js";
 import { agentNoProxy } from "../net/proxy.js";
 import type { SandboxService } from "../sandbox/service.js";
 import type { AuthState, Channels, Clock, Config, Log } from "../hmr/capabilities.js";
-import type { ProjectConfigStore, ProjectEvents } from "../mechanisms/projects.js";
+import type { ProjectConfigStore, ProjectEvents, Projects } from "../mechanisms/projects.js";
 import type { AgentState, SessionIndex, SessionOrigins } from "../mechanisms/sessions.js";
 import type { Errors, UsageRecording } from "../mechanisms/observability.js";
 import type { TraceIndex, TraceIndexStore } from "../mechanisms/traces.js";
@@ -440,6 +440,8 @@ export interface SessionManagerDeps {
   /** Session-origin registry (session_meta is the single source of truth; subagent registration records the forwarded meta's source here). */
   sources: SessionOrigins;
   recorder: UsageRecorderLike;
+  /** Captures the Project lifetime for usage that may arrive after deletion and recreation. */
+  projects?: Pick<Projects, "findById">;
   /**
    * The data root, for what is read off an Agent's state on disk before a Session is loaded
    * (startGoal's goal-plugin check). Optional: a manager built without one — unit tests on a
@@ -529,6 +531,7 @@ interface PendingSteeringEntry {
 export interface RuntimeEntry {
   sessionId: string;
   projectId: string;
+  projectCreatedAt?: string;
   agentId: string;
   /**
    * The Session's current model (provider group paired with modelId): what the next drive
@@ -954,6 +957,7 @@ export class SessionManager {
     const entry: RuntimeEntry = {
       sessionId: row.sessionId,
       projectId: row.projectId,
+      projectCreatedAt: this.deps.projects?.findById(row.projectId)?.createdAt,
       agentId: row.agentId,
       provider: row.provider,
       modelId: row.modelId,
@@ -1049,6 +1053,7 @@ export class SessionManager {
     this.deps.channels.get(entry.sessionId).publish(msg);
     const ctx: UsageContext = {
       projectId: entry.projectId,
+      projectCreatedAt: entry.projectCreatedAt,
       agentId: entry.agentId,
       sessionId: entry.sessionId,
       provider: entry.provider,
@@ -2164,6 +2169,7 @@ export class SessionManager {
     const entry: RuntimeEntry = {
       sessionId: currentId,
       projectId: row.projectId,
+      projectCreatedAt: this.deps.projects?.findById(row.projectId)?.createdAt,
       agentId: row.agentId,
       provider: row.provider,
       modelId: row.modelId,
@@ -2247,6 +2253,7 @@ export class SessionManager {
     const ctx: UsageContext = {
       projectId: entry.projectId,
       agentId: entry.agentId,
+      projectCreatedAt: entry.projectCreatedAt,
       sessionId: entry.sessionId,
       provider: entry.provider,
       modelId: entry.modelId,
@@ -2801,6 +2808,7 @@ export class SessionsModule {
   @Use() private readonly log!: Log;
   @Use() private readonly settings!: Settings;
   @Use() private readonly sessionsRepo!: SessionIndex;
+  @Use() private readonly projects!: Projects;
   @Use() private readonly sources!: SessionOrigins;
   @Use() private readonly state!: AgentState;
   @Use() private readonly recorder!: UsageRecording;
@@ -2926,6 +2934,7 @@ export class SessionsModule {
       }),
       sources,
       recorder,
+      projects: this.projects,
       errors,
       modelScopeAuth: this.modelScopeAuth,
       titles,

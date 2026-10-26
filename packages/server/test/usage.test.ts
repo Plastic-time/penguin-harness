@@ -10,6 +10,7 @@
  * - Interleaved main and child sessions cannot suppress each other's failed requests.
  * - Compaction usage without streamed request boundaries does not hide the next request's failure.
  * - Deleting a Project discards late main, child, standalone and failed-request usage.
+ * - Recreating that Project keeps old request usage out while accepting new request usage.
  *
  * Querying:
  * - A scheduled model is priced per record by the tier its request ran in, each seller by its
@@ -119,6 +120,36 @@ describe("usage-recorder", () => {
         await rec.record(CTX, origin(requestEnd("completed")));
       }
       expect(db.prepare("SELECT total FROM usage_records").all()).toEqual([]);
+    },
+  );
+
+  it.each(["main", "child", "standalone", "failed"] as const)(
+    "a recreated Project rejects old %s usage and accepts its own usage",
+    async (kind) => {
+      const rec = wire(UsageRecorder, { usage: repo, projects, clock: { now: () => new Date() } });
+      const ctx = { ...CTX, projectCreatedAt: projects.findById(CTX.projectId)!.createdAt };
+      const origin = (msg: Parameters<UsageRecorder["record"]>[1]) =>
+        kind === "child" ? withOrigin(msg, "session-child") : msg;
+      await rec.record(ctx, origin(requestBegin()));
+      projects.delete(ctx.projectId);
+      projects.insert({
+        projectId: ctx.projectId,
+        ownerUserId: "owner",
+        createdAt: "2026-10-26T00:01:00Z",
+      });
+      await rec.record(
+        ctx,
+        kind === "failed"
+          ? requestEnd("retryable", { errorCode: "network" })
+          : origin(tokenUsage(counts(12), counts(12))),
+        kind === "standalone" ? "standalone" : "stream",
+      );
+      expect(db.prepare("SELECT total FROM usage_records").all()).toEqual([]);
+      await rec.record(
+        { ...ctx, projectCreatedAt: projects.findById(ctx.projectId)!.createdAt },
+        tokenUsage(counts(4), counts(4)),
+      );
+      expect(db.prepare("SELECT total FROM usage_records").all()).toEqual([{ total: 4 }]);
     },
   );
 

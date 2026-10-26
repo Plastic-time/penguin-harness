@@ -12,5 +12,8 @@ could insert new rows for that deleted Project. The usage recorder now checks th
 still exists before persisting reported tokens or failed-request rows. This applies to main
 Sessions, subagent records and standalone usage such as automatic titles.
 
+Recreating a Project with the same ID starts fresh: late usage from the previous Project is
+discarded, while requests belonging to the new Project are recorded normally.
+
 Removing only a Session still preserves its reported usage while the Project exists. The change
 does not alter the deletion deadline or estimate provider charges.

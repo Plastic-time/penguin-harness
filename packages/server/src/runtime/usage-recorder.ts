@@ -24,6 +24,8 @@ import type { UsageRecording, UsageStore } from "../mechanisms/observability.js"
 /** Attribution context for one record (top-level Session scope). */
 export interface UsageContext {
   projectId: string;
+  /** Project creation stamp captured before the request starts; survives Session deletion. */
+  projectCreatedAt?: string;
   agentId: string;
   /** Top-level Session id (the current actual id after self-heal). */
   sessionId: string;
@@ -86,12 +88,15 @@ export class UsageRecorder implements UsageRecording {
     if (payload.type === "request_end") this.requests.delete(requestSessionId);
     // Project deletion clears usage even when a request outlives the cleanup deadline.
     // Session/Agent removal alone still retains usage while its Project exists.
-    if (
-      (payload.type === "token_usage" || payload.type === "request_end") &&
-      this.projects.findById(ctx.projectId) === null
-    ) {
-      this.requests.delete(requestSessionId);
-      return;
+    if (payload.type === "token_usage" || payload.type === "request_end") {
+      const project = this.projects.findById(ctx.projectId);
+      if (
+        project === null ||
+        (ctx.projectCreatedAt !== undefined && project.createdAt !== ctx.projectCreatedAt)
+      ) {
+        this.requests.delete(requestSessionId);
+        return;
+      }
     }
     // Empty origin → main session's Model; otherwise look up the mapping, falling back to the main Session's Model (paired) on a miss.
     const ref =

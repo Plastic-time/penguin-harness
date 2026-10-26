@@ -2,7 +2,8 @@
  * A completed provider response is waiting for its final text Trace write. When Project
  * deletion reaches its cleanup deadline, subsequent usage must not recreate deleted rows.
  * Controls: the same response remains metered with a live Project, even if only its Session
- * was deleted. Real model adapter, Session, Trace, server and SQLite; scripted provider and
+ * was deleted. Recreating the Project's ID must not inherit its previous requests' usage.
+ * Real model adapter, Session, Trace, server and SQLite; scripted provider and
  * gated Trace completion. The deletion deadline uses fake timers, not a real wait.
  */
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
@@ -31,7 +32,7 @@ afterAll(async () => {
   await t.cleanup();
 });
 
-it.each(["project", "session", "neither"] as const)(
+it.each(["project", "recreated", "session", "neither"] as const)(
   "keeps usage consistent when deleting %s during a completed response's final write",
   async (removal) => {
     const projectId = `owner-late_main_${++projects}`;
@@ -131,7 +132,7 @@ it.each(["project", "session", "neither"] as const)(
       await t.deps.manager.startTask(sessionId, [userText("work")]);
       await textWriting.promise;
       expect(completedResponse).toBe(true);
-      if (removal === "project") {
+      if (removal === "project" || removal === "recreated") {
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
         deletion = t.deps.projectService.deleteProject("owner", projectId);
         expect(requestSignal?.aborted).toBe(true);
@@ -150,6 +151,11 @@ it.each(["project", "session", "neither"] as const)(
         });
         await waitFor(() => requestSignal?.aborted === true);
       }
+      if (removal === "recreated") {
+        expect(
+          (await api.post("/api/projects", { projectId, name: "Recreated project" })).status,
+        ).toBe(201);
+      }
       releaseText.resolve();
       await requestEnded.promise;
       await deletion;
@@ -158,7 +164,11 @@ it.each(["project", "session", "neither"] as const)(
         t.deps.db
           .prepare("SELECT total, model_id FROM usage_records WHERE project_id = ?")
           .all(projectId),
-      ).toEqual(removal === "project" ? [] : [{ total: 12, model_id: "gpt-test" }]);
+      ).toEqual(
+        removal === "project" || removal === "recreated"
+          ? []
+          : [{ total: 12, model_id: "gpt-test" }],
+      );
     } finally {
       vi.useRealTimers();
       releaseText.resolve();
