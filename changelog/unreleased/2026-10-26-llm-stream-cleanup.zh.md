@@ -3,6 +3,7 @@
 Date: 2026-10-26
 Type: Fixed
 Scope: core
+PR: [#1354](https://github.com/Prism-Shadow/penguin-harness/pull/1354)
 
 [English](./2026-10-26-llm-stream-cleanup.md)
 
