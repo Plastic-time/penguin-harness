@@ -237,8 +237,10 @@ it.each([
     }
     await textWriting.promise;
     expect(providerCompleted).toBe(true);
-    const published: unknown[] = [];
-    const unsubscribe = t.deps.channels.get(parentId).subscribe((msg) => published.push(msg));
+    const published: AmspRecord[] = [];
+    const unsubscribe = t.deps.channels.get(parentId).subscribe((event) => {
+      if (!event.event) published.push(JSON.parse(event.data) as AmspRecord);
+    });
     try {
       if (scenario !== "live-child") {
         deletion = Promise.resolve(
@@ -270,10 +272,10 @@ it.each([
       // Project deletion also removes the Trace directory; only retained Projects can write it.
       expect(tracedUsage).toEqual(removeProject ? [] : [12]);
       if (!main && !removeProject) expect(deliveredUsage).toBe(1);
-      if (scenario !== "live-child" && !main)
-        expect(published.filter((msg) => (msg as AmspRecord).origin?.includes(childId))).toEqual(
-          [],
-        );
+      const childMessages = published.filter((msg) => msg.origin?.includes(childId));
+      if (scenario === "live-child")
+        expect(childMessages.some((msg) => kind(msg) === "token_usage")).toBe(true);
+      else if (!main) expect(childMessages).toEqual([]);
       const rows = t.deps.db
         .prepare("SELECT total, model_id FROM usage_records WHERE session_id = ?")
         .all(parentId);
