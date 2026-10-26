@@ -1338,6 +1338,8 @@ export class Session {
    * Subscribes the host to live-forwarded background-subagent messages (origin-tagged, the
    * same stream a foreground collect window would relay): the server publishes them to the
    * session's event channel so the frontend sees a background child working in real time.
+   * Accounting records can arrive during disposal; hosts must stop publishing after removal
+   * while still recording usage for the original Session.
    * One listener; a later call replaces the earlier one.
    */
   onBackgroundMessage(listener: (msg: AmspRecord) => void): void {

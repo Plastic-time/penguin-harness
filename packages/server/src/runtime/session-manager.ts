@@ -107,7 +107,7 @@ import { loopbackHostRoles } from "../services/preview-token.js";
 import { agentNoProxy } from "../net/proxy.js";
 import type { SandboxService } from "../sandbox/service.js";
 import type { AuthState, Channels, Clock, Config, Log } from "../hmr/capabilities.js";
-import type { ProjectConfigStore, ProjectEvents } from "../mechanisms/projects.js";
+import type { ProjectConfigStore, ProjectEvents, Projects } from "../mechanisms/projects.js";
 import type { AgentState, SessionIndex, SessionOrigins } from "../mechanisms/sessions.js";
 import type { Errors, UsageRecording } from "../mechanisms/observability.js";
 import type { TraceIndex, TraceIndexStore } from "../mechanisms/traces.js";
@@ -440,6 +440,8 @@ export interface SessionManagerDeps {
   /** Session-origin registry (session_meta is the single source of truth; subagent registration records the forwarded meta's source here). */
   sources: SessionOrigins;
   recorder: UsageRecorderLike;
+  /** Deleted Projects discard usage history, including late child records. */
+  projects?: Pick<Projects, "findById">;
   /**
    * The data root, for what is read off an Agent's state on disk before a Session is loaded
    * (startGoal's goal-plugin check). Optional: a manager built without one — unit tests on a
@@ -996,7 +998,8 @@ export class SessionManager {
     session.onBackgroundNotice?.(
       () => void this.state.current?.startBackgroundNoticeTask(sessionId),
     );
-    session.onBackgroundMessage?.((msg) => this.forwardBackgroundMessage(sessionId, msg));
+    const entry = this.entries.get(sessionId);
+    if (entry) session.onBackgroundMessage?.((msg) => this.forwardBackgroundMessage(entry, msg));
     session.onSubagentState?.(() => {
       const entry = this.entries.get(sessionId);
       if (entry) this.publishState(entry, entry.status);
@@ -1006,7 +1009,6 @@ export class SessionManager {
     // approval with no window and no background-launch standing sink escalates to the user
     // (SSE approval_request) instead of parking until the model's next poll — the parent
     // session idle included.
-    const entry = this.entries.get(sessionId);
     if (entry) session.setSubagentApprovalFallback?.(this.entryApprove(entry));
   }
 
@@ -1040,13 +1042,14 @@ export class SessionManager {
   }
 
   /** Publishes one live background-subagent message and records its usage (fire-and-forget; the child's own Trace is the durable record). */
-  private forwardBackgroundMessage(sessionId: string, msg: AmspRecord): void {
-    const entry = this.entries.get(sessionId);
-    if (!entry) return;
+  private forwardBackgroundMessage(entry: RuntimeEntry, msg: AmspRecord): void {
     // A child producing messages IS session activity: without this stamp the idle sweep
     // measures only the launching task, and a long background run ages into eviction.
-    entry.lastActivityMs = Date.now();
-    this.deps.channels.get(entry.sessionId).publish(msg);
+    if (this.entries.get(entry.sessionId) === entry) {
+      entry.lastActivityMs = Date.now();
+      this.deps.channels.get(entry.sessionId).publish(msg);
+    } else if (this.deps.projects?.findById(entry.projectId) === null) return;
+    // Removal ends presentation, not the accounting of an already-completed child request.
     const ctx: UsageContext = {
       projectId: entry.projectId,
       agentId: entry.agentId,
@@ -2801,6 +2804,7 @@ export class SessionsModule {
   @Use() private readonly log!: Log;
   @Use() private readonly settings!: Settings;
   @Use() private readonly sessionsRepo!: SessionIndex;
+  @Use() private readonly projects!: Projects;
   @Use() private readonly sources!: SessionOrigins;
   @Use() private readonly state!: AgentState;
   @Use() private readonly recorder!: UsageRecording;
@@ -2926,6 +2930,7 @@ export class SessionsModule {
       }),
       sources,
       recorder,
+      projects: this.projects,
       errors,
       modelScopeAuth: this.modelScopeAuth,
       titles,

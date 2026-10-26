@@ -28,7 +28,13 @@
  * Docs: /docs/tools § "Execution contract".
  */
 import path from "node:path";
-import { partialToolCallOutput, toolCallOutput, userText } from "@prismshadow/amsp/records";
+import {
+  isEventMessage,
+  isSessionMeta,
+  partialToolCallOutput,
+  toolCallOutput,
+  userText,
+} from "@prismshadow/amsp/records";
 import type { McpServerConnectResult, AmspRecord, ToolStatus } from "@prismshadow/amsp/records";
 import type {
   ApproveFn,
@@ -378,7 +384,15 @@ export class Environment implements EnvironmentInterface {
   private bgFwdBuffer: AmspRecord[] = [];
 
   private emitBackgroundForward(msg: AmspRecord): void {
-    if (this.bgDisposed) return;
+    // A completed request can still be reporting its usage during cancellation cleanup.
+    // Keep attribution and request boundaries with it so the host can meter it exactly once.
+    const accounting =
+      isSessionMeta(msg) ||
+      (isEventMessage(msg) &&
+        (msg.payload.type === "token_usage" ||
+          msg.payload.type === "request_begin" ||
+          msg.payload.type === "request_end"));
+    if (this.bgDisposed && !accounting) return;
     if (this.bgFwdListener) this.bgFwdListener(msg);
     else this.bgFwdBuffer.push(msg);
   }

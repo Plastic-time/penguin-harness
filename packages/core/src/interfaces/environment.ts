@@ -597,8 +597,9 @@ export interface EnvironmentInterface {
   setBackgroundTaskListener?(listener: (event: BackgroundTaskDoneEvent) => void): void;
   /**
    * Attaches the single listener for live-forwarded background-subagent messages (see
-   * EnvironmentServices.backgroundForward). Same buffering and dispose semantics as
-   * setBackgroundTaskListener. Optional.
+   * EnvironmentServices.backgroundForward). Buffers until attached. After disposal only
+   * session_meta, request_begin, token_usage and request_end continue, so the host can account
+   * for requests finishing during cleanup without presenting late conversation output. Optional.
    */
   setBackgroundMessageListener?(listener: (msg: AmspRecord) => void): void;
   /** Releases runtime resources held by the environment (e.g. managed long-running command sessions); called by the host when the Session ends. Optional, idempotent. */
