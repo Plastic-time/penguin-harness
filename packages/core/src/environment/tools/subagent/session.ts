@@ -78,6 +78,7 @@ export class ManagedSubagentSession {
   private readonly textBuffer = new CappedTextBuffer(OUTPUT_BUFFER_CAP, "earlier subagent output");
 
   private isRunning = false;
+  private runCompletion: Promise<void> = Promise.resolve();
   private exitInfo: SubagentExit | null = null;
   private killed = false;
 
@@ -168,7 +169,12 @@ export class ManagedSubagentSession {
     this.reportCurrentRun = opts?.suppressDoneReport !== true;
     this.runCtrl = new AbortController();
     this.notifyState();
-    void this.pump(messages, this.runCtrl);
+    this.runCompletion = this.pump(messages, this.runCtrl);
+  }
+
+  /** Waits for the current round's Trace writes and resource cleanup to finish. */
+  whenSettled(): Promise<void> {
+    return this.runCompletion;
   }
 
   /**
