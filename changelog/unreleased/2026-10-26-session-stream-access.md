@@ -3,6 +3,7 @@
 - **Date:** 2026-10-26
 - **Type:** fix
 - **Scope:** `server`
+- **PR:** [#1359](https://github.com/Prism-Shadow/penguin-harness/pull/1359)
 
 [中文版](2026-10-26-session-stream-access.zh.md)
 
