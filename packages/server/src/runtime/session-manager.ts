@@ -539,7 +539,7 @@ export interface RuntimeEntry {
   modelId: string;
   session: RuntimeSession;
   /** Replaced runtimes still owned by this Session, including their background work. */
-  retired?: RuntimeEntry[];
+  retired?: RuntimeSession[];
   status: SessionStatus;
   approvals: Approvals;
   abort: AbortController | null;
@@ -1829,10 +1829,11 @@ export class SessionManager {
   private abortRemoved(entry: RuntimeEntry): void {
     entry.approvals.denyAll();
     entry.abort?.abort();
-    for (const child of entry.session.listBackgroundSubagents?.() ?? []) {
-      entry.session.abortBackgroundSubagentRun?.(child.sessionId);
+    for (const session of [entry.session, ...(entry.retired ?? [])]) {
+      for (const child of session.listBackgroundSubagents?.() ?? []) {
+        session.abortBackgroundSubagentRun?.(child.sessionId);
+      }
     }
-    for (const retired of entry.retired ?? []) this.abortRemoved(retired);
   }
 
   /**
@@ -1846,7 +1847,7 @@ export class SessionManager {
     const dispose = (): void | Promise<void> => entry.session.dispose?.();
     return Promise.allSettled([
       entry.running ? entry.running.then(dispose, dispose) : Promise.resolve(dispose()),
-      ...(entry.retired ?? []).map((retired) => this.disposeRemoved(retired)),
+      ...(entry.retired ?? []).map((session) => session.dispose?.()),
     ]).then(() => undefined);
   }
 
@@ -1954,11 +1955,10 @@ export class SessionManager {
     ]);
   }
 
-  private hasBackgroundWork(entry: RuntimeEntry): boolean {
+  private hasBackgroundWork(session: RuntimeSession): boolean {
     return !!(
-      entry.session.hasRunningBackgroundSubagents?.() ||
-      entry.session.listBackgroundCommands?.().some((p) => p.running) ||
-      entry.retired?.some((retired) => this.hasBackgroundWork(retired))
+      session.hasRunningBackgroundSubagents?.() ||
+      session.listBackgroundCommands?.().some((p) => p.running)
     );
   }
 
@@ -2183,7 +2183,7 @@ export class SessionManager {
       provider: row.provider,
       modelId: row.modelId,
       session,
-      ...(existing ? { retired: [existing] } : {}),
+      ...(existing ? { retired: [existing.session, ...(existing.retired ?? [])] } : {}),
       status: "idle",
       approvals: new ApprovalRegistry(() => this.publishApprovals(entry)),
       abort: null,
