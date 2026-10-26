@@ -1823,6 +1823,15 @@ export class SessionManager {
     return "removed";
   }
 
+  /** Cancel every run before waiting for the main Task's cleanup; children can otherwise start another model request during that wait. */
+  private abortRemoved(entry: RuntimeEntry): void {
+    entry.approvals.denyAll();
+    entry.abort?.abort();
+    for (const child of entry.session.listBackgroundSubagents?.() ?? []) {
+      entry.session.abortBackgroundSubagentRun?.(child.sessionId);
+    }
+  }
+
   /**
    * Disposes a just-removed entry's runtime — after its in-flight drive (if any)
    * settles, so interrupt cleanup never races a dying environment. Deleting a Session /
@@ -1846,8 +1855,7 @@ export class SessionManager {
     const runnings: Promise<void>[] = [];
     for (const [key, entry] of [...this.entries]) {
       if (entry.projectId !== projectId) continue;
-      entry.approvals.denyAll();
-      entry.abort?.abort();
+      this.abortRemoved(entry);
       if (entry.running) runnings.push(entry.running);
       this.entries.delete(key);
       this.disposeRemoved(entry);
@@ -1869,8 +1877,7 @@ export class SessionManager {
     const runnings: Promise<void>[] = [];
     for (const [key, entry] of [...this.entries]) {
       if (entry.projectId !== projectId || entry.agentId !== agentId) continue;
-      entry.approvals.denyAll();
-      entry.abort?.abort();
+      this.abortRemoved(entry);
       if (entry.running) runnings.push(entry.running);
       this.entries.delete(key);
       this.disposeRemoved(entry);
@@ -1897,8 +1904,7 @@ export class SessionManager {
     this.deletingSessions.add(sessionId);
     const entry = this.entries.get(sessionId);
     if (!entry) return [];
-    entry.approvals.denyAll();
-    entry.abort?.abort();
+    this.abortRemoved(entry);
     this.entries.delete(sessionId);
     this.disposeRemoved(entry);
     return entry.running ? [entry.running] : [];
@@ -1929,8 +1935,7 @@ export class SessionManager {
     clearInterval(this.sweepTimer);
     const pending: Promise<void>[] = [];
     for (const entry of this.entries.values()) {
-      entry.approvals.denyAll();
-      entry.abort?.abort();
+      this.abortRemoved(entry);
       if (entry.running) pending.push(entry.running);
       // Suspend means the environment too: dispose kills the Session's remaining
       // background processes (a dev server the conversation started, etc.). Without

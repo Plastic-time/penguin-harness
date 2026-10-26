@@ -1,0 +1,11 @@
+# Cancel child requests when Session removal starts
+
+- **Date:** 2026-10-26
+- **Type:** fix
+- **Scope:** `server`
+
+[中文版](2026-10-26-cancel-subagents-on-removal.zh.md)
+
+Session, Agent, and Project deletion and server shutdown cancelled live subagent runs before waiting for the main Task's interrupt cleanup. A slow main Task no longer left those children free to finish a tool turn and open another model request during that wait.
+
+Environment disposal kept its existing order after the main Task settled. An ordinary Task stop continued to leave background subagents running.
