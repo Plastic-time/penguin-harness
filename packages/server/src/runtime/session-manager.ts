@@ -308,7 +308,7 @@ export interface RuntimeSession {
   /** Subscribes background-task state changes (core `Session.onBackgroundState`): the manager re-counts the live registries and publishes `session_background` when the counts moved. Optional. */
   onBackgroundState?(listener: () => void): void;
   /** Releases environment resources — kills the remaining background processes (core `Session.dispose`). Optional, idempotent. */
-  dispose?(): void;
+  dispose?(): void | Promise<void>;
 }
 
 /** The underlying loader behind get-or-resume-or-heal. */
@@ -1839,15 +1839,14 @@ export class SessionManager {
    * conversation started (a dev server surviving its deleted conversation is
    * unreachable from every UI, running forever).
    */
-  private disposeRemoved(entry: RuntimeEntry): void {
-    const dispose = (): void => entry.session.dispose?.();
-    if (entry.running) void entry.running.then(dispose, dispose);
-    else dispose();
+  private disposeRemoved(entry: RuntimeEntry): Promise<void> {
+    const dispose = (): void | Promise<void> => entry.session.dispose?.();
+    return entry.running ? entry.running.then(dispose, dispose) : Promise.resolve(dispose());
   }
 
   /**
    * Before deleting a Project, converge all its active runs and clear them out of the
-   * active table. Returns the in-flight drive Promises of the affected entries: the
+   * active table. Returns the drive and background-cleanup Promises of the affected entries: the
    * caller (deleteProject) should await them before removing the directory, so that
    * interrupt-cleanup Trace writes don't recreate the directory after deletion.
    */
@@ -1856,9 +1855,8 @@ export class SessionManager {
     for (const [key, entry] of [...this.entries]) {
       if (entry.projectId !== projectId) continue;
       this.abortRemoved(entry);
-      if (entry.running) runnings.push(entry.running);
       this.entries.delete(key);
-      this.disposeRemoved(entry);
+      runnings.push(this.disposeRemoved(entry));
     }
     return runnings;
   }
@@ -1878,9 +1876,8 @@ export class SessionManager {
     for (const [key, entry] of [...this.entries]) {
       if (entry.projectId !== projectId || entry.agentId !== agentId) continue;
       this.abortRemoved(entry);
-      if (entry.running) runnings.push(entry.running);
       this.entries.delete(key);
-      this.disposeRemoved(entry);
+      runnings.push(this.disposeRemoved(entry));
     }
     return runnings;
   }
@@ -1897,7 +1894,7 @@ export class SessionManager {
    * a new task recreates the entry and Trace file, reviving an already-deleted Session
    * between the abort snapshot and the file removal. The caller must call
    * endSessionDeletion once deletion finishes (success or failure). Returns the
-   * in-flight drive Promise: the caller should await it before deleting the Trace file,
+   * drive and background-cleanup Promise: the caller should await it before deleting the Trace file,
    * so cleanup writes don't recreate the file.
    */
   beginSessionDeletion(sessionId: string): Promise<void>[] {
@@ -1906,8 +1903,7 @@ export class SessionManager {
     if (!entry) return [];
     this.abortRemoved(entry);
     this.entries.delete(sessionId);
-    this.disposeRemoved(entry);
-    return entry.running ? [entry.running] : [];
+    return [this.disposeRemoved(entry)];
   }
 
   endSessionDeletion(sessionId: string): void {
@@ -1936,16 +1932,13 @@ export class SessionManager {
     const pending: Promise<void>[] = [];
     for (const entry of this.entries.values()) {
       this.abortRemoved(entry);
-      if (entry.running) pending.push(entry.running);
       // Suspend means the environment too: dispose kills the Session's remaining
       // background processes (a dev server the conversation started, etc.). Without
       // this, a hot swap orphans them — the OS process keeps running while the next
       // App's freshly resumed Session starts with an empty process list, so the stop
       // control has gone blind. Sequenced after the in-flight drive settles, the same
       // ordering disposeRemoved uses.
-      const dispose = (): void => entry.session.dispose?.();
-      if (entry.running) void entry.running.then(dispose, dispose);
-      else dispose();
+      pending.push(this.disposeRemoved(entry));
     }
     this.entries.clear();
     if (pending.length === 0) return;

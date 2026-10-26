@@ -167,8 +167,19 @@ export class SubagentSessionManager {
     return this.registry.get(subagentId);
   }
 
-  /** Disposes: removes the fallback registration and finalizes all sessions (the process 'exit' fallback is hooked by the registry itself). Idempotent. */
-  dispose(): void {
+  private disposal: Promise<void> | null = null;
+
+  /** Cancels all children immediately and resolves once their rounds have finished writing. Idempotent. */
+  dispose(): Promise<void> {
+    if (this.disposal) return this.disposal;
+    const children = new Set([...this.live, ...this.registry.list().map(({ task }) => task)]);
     this.registry.dispose();
+    // Include children still in their foreground collect window, before registration.
+    for (const child of children) child.kill();
+    this.live.clear();
+    this.disposal = Promise.allSettled([...children].map((child) => child.whenSettled())).then(
+      () => undefined,
+    );
+    return this.disposal;
   }
 }
