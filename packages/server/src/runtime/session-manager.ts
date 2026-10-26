@@ -538,6 +538,8 @@ export interface RuntimeEntry {
   provider: string;
   modelId: string;
   session: RuntimeSession;
+  /** Replaced runtimes still owned by this Session, including their background work. */
+  retired?: RuntimeEntry[];
   status: SessionStatus;
   approvals: Approvals;
   abort: AbortController | null;
@@ -1830,6 +1832,7 @@ export class SessionManager {
     for (const child of entry.session.listBackgroundSubagents?.() ?? []) {
       entry.session.abortBackgroundSubagentRun?.(child.sessionId);
     }
+    for (const retired of entry.retired ?? []) this.abortRemoved(retired);
   }
 
   /**
@@ -1841,7 +1844,10 @@ export class SessionManager {
    */
   private disposeRemoved(entry: RuntimeEntry): Promise<void> {
     const dispose = (): void | Promise<void> => entry.session.dispose?.();
-    return entry.running ? entry.running.then(dispose, dispose) : Promise.resolve(dispose());
+    return Promise.allSettled([
+      entry.running ? entry.running.then(dispose, dispose) : Promise.resolve(dispose()),
+      ...(entry.retired ?? []).map((retired) => this.disposeRemoved(retired)),
+    ]).then(() => undefined);
   }
 
   /**
@@ -1948,6 +1954,14 @@ export class SessionManager {
     ]);
   }
 
+  private hasBackgroundWork(entry: RuntimeEntry): boolean {
+    return !!(
+      entry.session.hasRunningBackgroundSubagents?.() ||
+      entry.session.listBackgroundCommands?.().some((p) => p.running) ||
+      entry.retired?.some((retired) => this.hasBackgroundWork(retired))
+    );
+  }
+
   /**
    * Active-table idle eviction: removes entries that are idle (idle status, no pending
    * approvals, no in-flight drive) and have been inactive past the timeout, releasing
@@ -1959,6 +1973,7 @@ export class SessionManager {
    */
   sweepIdle(now: number = Date.now(), idleMs: number = ENTRY_IDLE_MS): void {
     for (const [key, entry] of this.entries) {
+      if (entry.retired?.some((retired) => this.hasBackgroundWork(retired))) continue;
       if (entry.status !== "idle" || entry.approvals.size !== 0 || entry.running !== null) continue;
       if (entry.followUps.length > 0) continue; // queued follow-ups must not be evicted with the entry
       // A live background process (e.g. a dev server the conversation started) pins the
@@ -1979,6 +1994,7 @@ export class SessionManager {
       if (this.keptLoaded.has(key)) continue;
       if (now - entry.lastActivityMs <= idleMs) continue;
       this.entries.delete(key);
+      void this.disposeRemoved(entry);
     }
   }
 
@@ -2127,7 +2143,8 @@ export class SessionManager {
       ) {
         return existing;
       }
-      this.entries.delete(sessionId);
+      // Keep ownership while loading: a failed reload or concurrent deletion must still
+      // reach the previous runtime and its children.
       discardedBackgroundTasks = existing.backgroundTasks;
     }
     const row = this.deps.sessions.findById(sessionId);
@@ -2166,6 +2183,7 @@ export class SessionManager {
       provider: row.provider,
       modelId: row.modelId,
       session,
+      ...(existing ? { retired: [existing] } : {}),
       status: "idle",
       approvals: new ApprovalRegistry(() => this.publishApprovals(entry)),
       abort: null,
@@ -2188,6 +2206,7 @@ export class SessionManager {
     // crashed between the Trace write and the row update resumes (from the Trace) on the new
     // model, and the row is brought back in step here.
     this.syncEntryModel(entry);
+    if (currentId !== sessionId) this.entries.delete(sessionId);
     this.entries.set(currentId, entry);
     this.registerNoticeListener(currentId, session);
     if (discardedBackgroundTasks !== undefined) this.publishBackgroundTasks(currentId);

@@ -3,6 +3,8 @@
  * polling, resuming with an appended Prompt, the approval queue, and lifecycle finalization.
  * Disposing waits for cancellation cleanup, including a child still in its foreground window;
  * repeated disposal waits for the same cleanup and does not release the child twice.
+ * A cancellation or disposal during spawn or metadata delivery prevents the first child run;
+ * a launch that stays live still starts once.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { Environment } from "../src/environment/index.js";
@@ -16,6 +18,7 @@ import {
   abortEvent,
   assistantText,
   partialText,
+  sessionMeta,
   toolCall,
   userText,
   withOrigin,
@@ -168,6 +171,70 @@ afterEach(() => {
 });
 
 describe("run_subagent tool (foreground)", () => {
+  it.each([
+    ["spawn", "abort"],
+    ["spawn", "dispose"],
+    ["metadata", "abort"],
+    ["metadata", "dispose"],
+    ["live", "none"],
+  ] as const)("launch at %s handles %s before the first child run", async (when, cause) => {
+    const controller = new AbortController();
+    let releaseSpawn!: () => void;
+    const spawning = new Promise<void>((resolve) => {
+      releaseSpawn = resolve;
+    });
+    let runs = 0,
+      disposals = 0;
+    const { services, manager } = makeServices({
+      spawn: async () => {
+        await spawning;
+        return {
+          sessionId: HOP,
+          takeMeta: () =>
+            withOrigin(
+              sessionMeta({
+                session_id: HOP,
+                provider: "custom",
+                model_id: "test",
+                model_context_window: 1000,
+                system_prompt: "test",
+                agent_state: "/tmp/state",
+                workspace: "/tmp/ws",
+                source: "subagent",
+              }),
+              HOP,
+            ),
+          async *run() {
+            runs++;
+            return null;
+          },
+          dispose() {
+            disposals++;
+          },
+        };
+      },
+    });
+    const tool = createSubagentTool(DEF, services);
+    const iterator = tool.execute(
+      { prompt: "work", run_in_background: true },
+      { ...CTX, signal: controller.signal },
+    );
+    const first = iterator.next();
+    const cancel = () => {
+      if (cause === "abort") controller.abort();
+      else void manager.dispose();
+    };
+    if (when === "spawn") cancel();
+    releaseSpawn();
+    await first;
+    if (when === "metadata") cancel();
+    const { result } = await collectWithReturn(iterator);
+    expect(runs).toBe(when === "live" ? 1 : 0);
+    if (when === "metadata") expect(result?.status).toBe("aborted");
+    await manager.dispose();
+    expect(disposals).toBe(1);
+  });
+
   it("forwards stamped child messages and mirrors child text as its own output deltas", async () => {
     const seen: Array<{
       prompt?: string;
