@@ -3,6 +3,7 @@
 - **Date:** 2026-10-26
 - **Type:** fix
 - **Scope:** `server`
+- **PR:** [#1364](https://github.com/Prism-Shadow/penguin-harness/pull/1364)
 
 [English](2026-10-26-deleted-project-usage.md)
 
