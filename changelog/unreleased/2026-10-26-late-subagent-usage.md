@@ -3,6 +3,7 @@
 - **Date:** 2026-10-26
 - **Type:** fix
 - **Scope:** `core`, `server`
+- **PR:** [#1363](https://github.com/Prism-Shadow/penguin-harness/pull/1363)
 
 [中文版](2026-10-26-late-subagent-usage.zh.md)
 
