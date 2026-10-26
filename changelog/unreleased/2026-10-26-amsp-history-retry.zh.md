@@ -3,6 +3,7 @@
 - **Date:** 2026-10-26
 - **Type:** fix
 - **Scope:** `amsp`
+- **PR:** [#1332](https://github.com/Prism-Shadow/penguin-harness/pull/1332)
 
 [English](2026-10-26-amsp-history-retry.md)
 
