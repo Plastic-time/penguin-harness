@@ -6,12 +6,14 @@
  * - Given pending history and stream retries, closing the reader cancels both: no requests follow.
  * - Given a fresh connection after the watchdog resets an idle stream, the old history retry
  *   cannot shorten the new connection's retry delay.
+ * - Given a history response that arrives after a fresh connection starts, its records or
+ *   refusal are ignored, and the new connection's history retry still recovers.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpTransport, SessionReader } from "../src/index.js";
 import type { ReaderEvent } from "../src/index.js";
 import { BASE_URL, control, createFetchFake, frame, gate, never } from "./helpers/fetch-fake.js";
-import { taskBegin } from "./helpers/streams.js";
+import { assistantText, taskBegin, taskEnd } from "./helpers/streams.js";
 
 const SID = "retry-session";
 const STREAM = `/sessions/${SID}/stream`;
@@ -29,6 +31,7 @@ describe("SessionReader history retry delay", () => {
       const first = gate();
       const second = gate();
       const record = taskBegin();
+      const held = taskEnd();
       const incoming = kind === "ping" ? control("ping") : frame(record, "ep-1");
       fake.json("GET", HISTORY, 503, unavailable);
       fake.json("GET", HISTORY, 503, unavailable);
@@ -38,7 +41,7 @@ describe("SessionReader history retry delay", () => {
         first.promise,
         incoming,
         second.promise,
-        incoming,
+        kind === "ping" ? control("ping") : frame(held, "ep-2"),
         never(),
       ]);
       const reader = new SessionReader(
@@ -61,7 +64,14 @@ describe("SessionReader history retry delay", () => {
         expect(fake.calls.filter((c) => c.path === HISTORY)).toHaveLength(2);
         await vi.advanceTimersByTimeAsync(1);
         expect(fake.calls.filter((c) => c.path === HISTORY)).toHaveLength(3);
-        expect(seen.map((event) => event.record)).toEqual([record]);
+        expect(seen.map((event) => [event.source, event.record])).toEqual(
+          kind === "ping"
+            ? [["history", record]]
+            : [
+                ["history", record],
+                ["live", held],
+              ],
+        );
         expect(fake.calls.filter((c) => c.path === STREAM)).toHaveLength(1);
       } finally {
         reader.close();
@@ -74,7 +84,8 @@ describe("SessionReader history retry delay", () => {
     const fake = createFetchFake();
     const end = gate();
     fake.json("GET", HISTORY, 503, unavailable);
-    fake.stream("GET", STREAM, [control("ping"), end.promise]);
+    // Keep a resume cursor so ending the stream does not reset and cancel the history retry.
+    fake.stream("GET", STREAM, [control("ping"), frame(taskBegin(), "ep-1"), end.promise]);
     const reader = new SessionReader(
       new HttpTransport({ baseUrl: BASE_URL, fetch: fake.fetch }),
       SID,
@@ -119,4 +130,53 @@ describe("SessionReader history retry delay", () => {
       reader.close();
     }
   });
+
+  it.each([200, 403])(
+    "ignores a stale %i history response after a fresh connection starts",
+    async (status) => {
+      vi.useFakeTimers();
+      const fake = createFetchFake();
+      const stale = gate();
+      const end = gate();
+      const current = assistantText("current");
+      fake.json(
+        "GET",
+        HISTORY,
+        status,
+        status === 200 ? { messages: [assistantText("stale")] } : unavailable,
+        stale.promise,
+      );
+      fake.json("GET", HISTORY, 503, unavailable);
+      fake.json("GET", HISTORY, 200, { messages: [current] });
+      fake.stream("GET", STREAM, [control("ping"), end.promise]);
+      fake.stream("GET", STREAM, [control("ping"), never()]);
+      const reader = new SessionReader(
+        new HttpTransport({ baseUrl: BASE_URL, fetch: fake.fetch }),
+        SID,
+      );
+      const seen: ReaderEvent[] = [];
+      const errors: unknown[] = [];
+      reader.on("event", (event) => seen.push(event));
+      reader.on("error", (error) => errors.push(error));
+      try {
+        await vi.advanceTimersByTimeAsync(0);
+        end.open();
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(fake.calls.filter((c) => c.path === HISTORY)).toHaveLength(2);
+        stale.open();
+        await vi.advanceTimersByTimeAsync(999);
+        expect(seen).toEqual([]);
+        expect(errors).toEqual([]);
+        expect(fake.calls.filter((c) => c.path === HISTORY)).toHaveLength(2);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(seen.map((event) => event.record)).toEqual([current]);
+        expect(errors).toEqual([]);
+        expect(fake.calls.filter((c) => c.path === HISTORY)).toHaveLength(3);
+        expect(fake.calls.filter((c) => c.path === STREAM)).toHaveLength(2);
+      } finally {
+        stale.open();
+        reader.close();
+      }
+    },
+  );
 });
