@@ -3,6 +3,7 @@
 - **Date:** 2026-10-26
 - **Type:** fix
 - **Scope:** `core`, `server`
+- **PR:** [#1360](https://github.com/Prism-Shadow/penguin-harness/pull/1360)
 
 [English](2026-10-26-subagent-deletion-cleanup.md)
 
