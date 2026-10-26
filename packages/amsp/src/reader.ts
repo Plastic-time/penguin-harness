@@ -129,6 +129,8 @@ export class SessionReader {
   /** `waiting`: subscribed, history not asked for yet; `loading`: history in flight; `live`: delivering as it comes. */
   #phase: "waiting" | "loading" | "live" = "waiting";
   #held: Held[] = [];
+  /** An accepted live snapshot also covers partials still in transit on the stream. */
+  #snapshotCursor: { epoch: string; seq: number } | null = null;
   /** The last stream id seen: where a reconnect resumes. */
   #lastId: string | null = null;
   /** Bumped by every history read, so a read a resync overtook is dropped. */
@@ -208,8 +210,13 @@ export class SessionReader {
       onRecord: (id, record) => {
         if (connection.signal.aborted) return;
         if (id !== null) this.#lastId = id;
-        if (this.#phase === "live") this.#emit(record, id, "live");
-        else this.#held.push({ id, record });
+        if (this.#phase === "live") {
+          const cursor = this.#snapshotCursor;
+          const at = id === null ? null : parseId(id);
+          const covered =
+            cursor !== null && at !== null && at.epoch === cursor.epoch && at.seq <= cursor.seq;
+          if (!covered || !isPartial(record)) this.#emit(record, id, "live");
+        } else this.#held.push({ id, record });
         spoke();
       },
       onControl: (control: AmspControl) => {
@@ -266,6 +273,7 @@ export class SessionReader {
     this.#epoch += 1;
     this.#phase = "waiting";
     this.#held = [];
+    this.#snapshotCursor = null;
     for (const listener of this.#listeners.reset) listener();
   }
 
@@ -338,6 +346,7 @@ export class SessionReader {
     if (cursor === null) return held;
     const seenEpoch = this.#lastId === null ? null : parseId(this.#lastId)?.epoch;
     if (seenEpoch !== undefined && seenEpoch !== null && seenEpoch !== cursor.epoch) return held;
+    this.#snapshotCursor = cursor;
     const before: Held[] = [];
     const after: Held[] = [];
     for (const entry of held) {
