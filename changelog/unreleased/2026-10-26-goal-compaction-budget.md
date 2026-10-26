@@ -3,6 +3,7 @@
 Date: 2026-10-26
 Type: Fixed
 Scope: plugins/goal
+PR: [#1355](https://github.com/Prism-Shadow/penguin-harness/pull/1355)
 
 [中文](./2026-10-26-goal-compaction-budget.zh.md)
 
