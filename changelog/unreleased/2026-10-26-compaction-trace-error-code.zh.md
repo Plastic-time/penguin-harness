@@ -3,6 +3,7 @@
 - **Date:** 2026-10-26
 - **Type:** fix
 - **Scope:** `core`
+- **PR:** [#1358](https://github.com/Prism-Shadow/penguin-harness/pull/1358)
 
 [English](2026-10-26-compaction-trace-error-code.md)
 
