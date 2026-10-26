@@ -3,6 +3,7 @@
 Date: 2026-10-26
 Type: Fixed
 Scope: server
+PR: [#1356](https://github.com/Prism-Shadow/penguin-harness/pull/1356)
 
 [中文](./2026-10-26-metered-request-count.zh.md)
 
