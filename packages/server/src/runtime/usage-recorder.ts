@@ -45,8 +45,12 @@ export class UsageRecorder implements UsageRecording {
   @Use() private readonly usage!: UsageStore;
   @Use() private readonly clock!: Clock;
 
-  /** Consume outgoing metadata, usage, and request boundaries. */
-  async record(ctx: UsageContext, msg: AmspRecord): Promise<void> {
+  /** Standalone usage (such as titles) is billed without metering the Session's active request. */
+  async record(
+    ctx: UsageContext,
+    msg: AmspRecord,
+    source: "stream" | "standalone" = "stream",
+  ): Promise<void> {
     if (isSessionMeta(msg) && msg.origin && msg.origin.length > 0) {
       const originSessionId = msg.origin[msg.origin.length - 1]!;
       // Bounded mapping (avoids unbounded growth over a long-running process): re-inserting refreshes insertion order, over the limit evicts the oldest.
@@ -110,7 +114,9 @@ export class UsageRecorder implements UsageRecording {
       });
       // Compaction streams usage but keeps its request boundaries in the Trace. Do not
       // retain state for those unpaired records after the compaction has finished.
-      if (this.requests.has(requestSessionId)) this.requests.set(requestSessionId, true);
+      if (source === "stream" && this.requests.has(requestSessionId)) {
+        this.requests.set(requestSessionId, true);
+      }
       return;
     }
     // A failed request (request_end and not completed, with no token_usage): persist 0 tokens
