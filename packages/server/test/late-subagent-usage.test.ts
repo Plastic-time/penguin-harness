@@ -3,10 +3,12 @@
  * Removing its parent during that write must not lose the ensuing usage record.
  * Controls: a live child and a removed main Session preserve the same reported usage.
  * Removed Sessions publish no late child messages; deleting their Project discards usage.
+ * Project deletion advances its bounded cleanup deadline with fake timers before releasing
+ * the child's final write, including when Session deletion precedes Project deletion.
  * Real model, engine, Environment, server recorder and SQLite; only provider output and the
  * completion of a Trace write are gated. No real model calls or spending.
  */
-import { beforeAll, afterAll, expect, it } from "vitest";
+import { beforeAll, afterAll, expect, it, vi } from "vitest";
 import {
   Session,
   Environment,
@@ -243,6 +245,7 @@ it.each([
     });
     try {
       if (scenario !== "live-child") {
+        if (removeProject) vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
         deletion = Promise.resolve(
           api.delete(
             scenario === "removed-project"
@@ -255,9 +258,11 @@ it.each([
         else await waitFor(() => requestSignal?.aborted === true);
       }
       if (removeProject) {
+        await vi.advanceTimersByTimeAsync(5000);
         expect((await deletion!).status).toBe(204);
         if (scenario === "removed-session-then-project")
           expect((await api.delete(`/api/projects/${projectId}`)).status).toBe(204);
+        vi.useRealTimers();
       }
       published.length = 0;
       releaseText.resolve();
@@ -281,6 +286,7 @@ it.each([
         .all(parentId);
       expect(rows).toEqual(removeProject ? [] : [{ total: 12, model_id: "gpt-test" }]);
     } finally {
+      vi.useRealTimers();
       unsubscribe();
       releaseText.resolve();
       releaseParent.resolve();

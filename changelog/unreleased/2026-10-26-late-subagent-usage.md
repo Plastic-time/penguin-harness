@@ -22,3 +22,5 @@ child is still running. The child's later output continues streaming to that Ses
 
 This preserves reported usage; it does not estimate unreported tokens or establish a provider's
 actual charge.
+
+Deletion coverage also exercises the bounded cleanup deadline when combined with child cleanup waiting.
