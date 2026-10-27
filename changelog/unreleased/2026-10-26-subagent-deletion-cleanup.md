@@ -10,3 +10,5 @@
 Session deletion included background subagent cancellation cleanup in its existing wait for running work. This prevented a child finishing within that wait from recreating its deleted Trace with cancellation records. Agent and Project deletion, and server shutdown, also awaited child cleanup.
 
 Stopping only the main Task continued to leave background subagents running.
+
+Cancelled children remained owned until cleanup settled, even when listing or looking up live children hid them before background registration.
