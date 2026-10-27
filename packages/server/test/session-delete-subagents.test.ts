@@ -39,14 +39,14 @@ afterAll(async () => {
   await t.cleanup();
 });
 
-async function setup(running: boolean) {
+async function setup(running: boolean, agentId = "default_agent") {
   const parentId = uniqueSessionId();
   const childId = uniqueSessionId();
   const releaseCleanup = gate();
   let childSignal: AbortSignal | undefined;
   let childDisposed = false;
   const childWriter = new Writer({
-    tracesDir: tracesDir(t.root, projectId, "default_agent"),
+    tracesDir: tracesDir(t.root, projectId, agentId),
     sessionId: childId,
   });
   const meta: SessionMetaPayload = {
@@ -91,7 +91,7 @@ async function setup(running: boolean) {
   });
   await childWriter.write(child.metaMessage);
   t.deps.sessionsRepo.insert(
-    sessionRow(childId, { projectId, createdAt: "2026-01-01T00:00:00.000Z" }),
+    sessionRow(childId, { projectId, agentId, createdAt: "2026-01-01T00:00:00.000Z" }),
   );
   const handle: SubagentHandle = {
     sessionId: childId,
@@ -126,10 +126,10 @@ async function setup(running: boolean) {
         });
       },
     }),
-    { projectId, createdAt: "2026-01-01T00:00:00.000Z" },
+    { projectId, agentId, createdAt: "2026-01-01T00:00:00.000Z" },
   );
   const parentWriter = new Writer({
-    tracesDir: tracesDir(t.root, projectId, "default_agent"),
+    tracesDir: tracesDir(t.root, projectId, agentId),
     sessionId: parentId,
   });
   await parentWriter.write({
@@ -173,6 +173,27 @@ it("stopping only the parent preserves its background child by design", async ()
     p.releaseCleanup.resolve();
     await api.delete(`/api/sessions/${p.parentId}`);
     await waitFor(p.disposed);
+  }
+});
+
+it("Agent DELETE cancels and drains its child's cleanup through the real route", async () => {
+  const agentId = "cleanup_agent";
+  expect((await api.post(`/api/projects/${projectId}/agents`, { agentId })).status).toBe(201);
+  const p = await setup(false, agentId);
+  try {
+    const deletion = api.delete(`/api/projects/${projectId}/agents/${agentId}`);
+    await waitFor(p.aborted);
+    expect(p.disposed()).toBe(false);
+    p.releaseCleanup.resolve();
+    // Older heads completed inline; current main accepts the background directory purge.
+    expect([202, 204]).toContain((await deletion).status);
+    await waitFor(p.disposed);
+    expect(t.deps.sessionsRepo.findById(p.parentId)).toBeNull();
+    expect(t.deps.sessionsRepo.findById(p.childId)).toBeNull();
+    expect(await fs.readFile(p.childWriter.currentPath(), "utf8").catch(() => null)).toBeNull();
+  } finally {
+    p.releaseCleanup.resolve();
+    await p.env.dispose();
   }
 });
 
