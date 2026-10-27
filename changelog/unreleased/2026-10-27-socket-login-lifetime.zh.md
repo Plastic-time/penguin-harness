@@ -3,6 +3,7 @@
 - **Date:** 2026-10-27
 - **Type:** fix
 - **Scope:** `server`
+- **PR:** [#1373](https://github.com/Prism-Shadow/penguin-harness/pull/1373)
 
 [English](2026-10-27-socket-login-lifetime.md)
 
