@@ -17,3 +17,5 @@ discarded, while requests belonging to the new Project are recorded normally.
 
 Removing only a Session still preserves its reported usage while the Project exists. The change
 does not alter the deletion deadline or estimate provider charges.
+
+Runtime loading now captures the original Project lifetime before credential refresh and rejects results when the Project or Session is removed during loading, releasing the unused runtime.

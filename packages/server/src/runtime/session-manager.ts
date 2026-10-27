@@ -2116,10 +2116,42 @@ export class SessionManager {
 
   private async ensureEntry(sessionId: string): Promise<RuntimeEntry> {
     const existing = this.entries.get(sessionId);
+    const row = this.deps.sessions.findById(sessionId);
+    if (!row) {
+      throw new HttpError(
+        404,
+        "session_not_found",
+        "Session does not exist or you do not have access.",
+      );
+    }
+    // Bind to the original lifetime before credential refresh or runtime loading can yield.
+    const projectCreatedAt =
+      existing?.projectCreatedAt ?? this.deps.projects?.findById(row.projectId)?.createdAt;
+    const assertLifetime = (): void => {
+      const current = this.deps.sessions.findById(sessionId);
+      const project = this.deps.projects?.findById(row.projectId);
+      if (
+        !current ||
+        current.createdAt !== row.createdAt ||
+        current.projectId !== row.projectId ||
+        current.agentId !== row.agentId ||
+        (this.deps.projects && (!project || project.createdAt !== projectCreatedAt))
+      ) {
+        throw new HttpError(
+          404,
+          "session_not_found",
+          "Session does not exist or you do not have access.",
+        );
+      }
+      this.assertSessionNotDeleting(sessionId);
+      this.assertAgentNotDeleting(sessionId);
+    };
+    assertLifetime();
     /** Background-task counts the discarded runtime last reported (see the publish below). */
     let discardedBackgroundTasks: SessionBackgroundTasks | undefined;
     if (existing) {
       await this.refreshProviderCredentialIfNeeded(existing);
+      assertLifetime();
       if (existing.generation === this.generationOf(existing.projectId, existing.agentId)) {
         return existing;
       }
@@ -2137,23 +2169,20 @@ export class SessionManager {
       this.entries.delete(sessionId);
       discardedBackgroundTasks = existing.backgroundTasks;
     }
-    const row = this.deps.sessions.findById(sessionId);
-    if (!row) {
-      throw new HttpError(
-        404,
-        "session_not_found",
-        "Session does not exist or you do not have access.",
-      );
-    }
     await this.refreshProviderCredentialIfNeeded(row);
+    assertLifetime();
     // Captured before the (awaited) load: an invalidation racing with the load leaves
     // this entry stale, so the access after next rebuilds it with the new values.
     const generation = this.generationOf(row.projectId, row.agentId);
     const session = await this.deps.loader.load(row);
     // The Session/Agent was marked for deletion while loading: discard the load result,
     // don't rebuild the entry (avoids reviving an orphaned Trace).
-    this.assertSessionNotDeleting(row.sessionId);
-    this.assertAgentNotDeleting(row.sessionId);
+    try {
+      assertLifetime();
+    } catch (err) {
+      await session.dispose?.();
+      throw err;
+    }
     // A thinking-level PATCH that landed during the (awaited) load updated the row but found
     // no entry to assign, and the loader applied the snapshot's level: re-read the pin.
     const pin = this.deps.sessions.findById(row.sessionId)?.thinkingLevel;
@@ -2169,7 +2198,7 @@ export class SessionManager {
     const entry: RuntimeEntry = {
       sessionId: currentId,
       projectId: row.projectId,
-      projectCreatedAt: this.deps.projects?.findById(row.projectId)?.createdAt,
+      projectCreatedAt,
       agentId: row.agentId,
       provider: row.provider,
       modelId: row.modelId,
