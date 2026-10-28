@@ -12,3 +12,5 @@ Session, Agent, and Project deletion and server shutdown cancelled live subagent
 Environment disposal kept its existing order after the main Task settled. An ordinary Task stop continued to leave background subagents running.
 
 Cancellation during child creation or initial metadata delivery now prevents the child from starting. A credential refresh keeps ownership of the replaced runtime's background work, so later Session, Agent, Project deletion and shutdown still cancel it and wait for cleanup. Failed reloads keep the previous runtime reachable.
+
+Host and model requests that resumed a released child after cancellation or removal released the returned handle before answering, without starting another run.
