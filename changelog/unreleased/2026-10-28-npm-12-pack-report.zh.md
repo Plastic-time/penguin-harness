@@ -3,6 +3,7 @@
 - **Date:** 2026-10-28
 - **Type:** fix
 - **Scope:** `server`
+- **PR:** [#1381](https://github.com/Prism-Shadow/penguin-harness/pull/1381)
 - **Issue:** [#1366](https://github.com/Prism-Shadow/penguin-harness/issues/1366)
 
 [English](2026-10-28-npm-12-pack-report.md)
