@@ -46,12 +46,15 @@
  *   an answer, set even on a hand-written block, and deleted by key sign-in and with the machine.
  * - Given a stored password the machine refuses, a machine kept connected stops retrying — a
  *   person's Retry is refused too — until a password is saved for it again.
- * - Given a machine kept connected that does not come back, eight failures in a row stop the
+ * - Given a machine kept connected that does not come back, five failures in a row stop the
  *   automatic attempts, and an ssh refusal no retry mends stops them at the first, with no check;
  *   the look-over then tries nothing. A person's Retry runs one attempt at once: a stopped streak
  *   counts from the first again, a waiting one keeps its count, one running is left alone, and a
  *   host that answers again ends the streak connected. A machine not kept connected, one a job is
  *   working on and an unknown host are refused before anything runs; a connected one is left alone.
+ * - Given a person's Stop retrying, a waiting streak stops at once and nothing runs after it
+ *   until a Retry, which counts from the first again; an attempt already under way runs out and
+ *   nothing follows its failure, and a Retry meanwhile takes that attempt as its first.
  * - Given a refusal decidable without ssh (self-install, a second install, an unknown host, no
  *   image), nothing runs. Given ssh's own refusal, the job ends at the first step with why, for
  *   the page to say, and no offer to install anyway.
@@ -188,6 +191,19 @@ function effects(over: Partial<MachinesEffects> = {}): Partial<MachinesEffects> 
     },
     ...over,
   };
+}
+
+/**
+ * A port this host is not listening on: bound once and released. Lets a case use a layout port
+ * of its own, since a shared default can have an unrelated server on it — and a connect asks
+ * that server its identity now.
+ */
+async function quietPort(): Promise<number> {
+  const server = http.createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
 }
 
 describe("machines API", () => {
@@ -1074,13 +1090,20 @@ describe("machines API", () => {
     });
 
     it("a machine never reached before starts on the profile's own default port", async () => {
+      // The dev profile's layout, with its port replaced by one of this host's own: the case is
+      // about the port coming from the layout rather than from a guess, and on a shared default
+      // an unrelated server may be listening — one a connect now asks its identity.
       const starts: number[] = [];
       let up = false;
+      const layout = { ...remoteLayoutFor("dev"), defaultPort: await quietPort() };
       await boot(
         {
           probe: async () =>
             up
-              ? { state: { kind: "running" as const, port: 7371, pid: 4242 }, machineId: null }
+              ? {
+                  state: { kind: "running" as const, port: layout.defaultPort, pid: 4242 },
+                  machineId: null,
+                }
               : { state: { kind: "stopped" as const }, machineId: null },
           startServer: async (_t, port) => {
             starts.push(port);
@@ -1088,14 +1111,14 @@ describe("machines API", () => {
             return { ok: true };
           },
         },
-        remoteLayoutFor("dev"),
+        layout,
       );
       installed("9.9.9");
       await admin.post("/api/projects/default_project/machines/ssh:nas/connect");
       await waitFor(() => t.deps.machines.job()?.running === false);
       expect(t.deps.machines.job()?.result).toEqual({ ok: true, connected: true });
-      expect(starts).toEqual([7371]);
-      expect(machinesRepo.get("ssh:nas")?.remotePort).toBe(7371);
+      expect(starts).toEqual([layout.defaultPort]);
+      expect(machinesRepo.get("ssh:nas")?.remotePort).toBe(layout.defaultPort);
     });
 
     it("remembers the port the machine says it serves on, not the one that was asked for", async () => {
@@ -1313,9 +1336,16 @@ describe("machines API", () => {
         },
       },
     });
-    /** A machine's server: says what runs there, and keeps the Model config it is handed. */
-    const machineServer = async (initially: Runs) => {
-      const state = { runs: initially, puts: [] as ModelsUpdateRequest[] };
+    /**
+     * A machine's server: says what runs there, and keeps the Model config it is handed.
+     *
+     * `runs` is what its disk holds (GET /api/version); `processRuns` is the build the process
+     * loaded at its start (GET /api/handshake), this hub's image unless a case says a hot update
+     * moved the disk and not the process — these cases are about the version gate below the
+     * handshake, and a machine the handshake already judges in line is what leaves it to decide.
+     */
+    const machineServer = async (initially: Runs, processRuns: Runs = "the image") => {
+      const state = { runs: initially, process: processRuns, puts: [] as ModelsUpdateRequest[] };
       const server = http.createServer((req, res) => {
         let body = "";
         req.on("data", (chunk: Buffer) => (body += chunk.toString("utf8")));
@@ -1325,11 +1355,13 @@ describe("machines API", () => {
           }
           res.writeHead(200, { "content-type": "application/json" });
           res.end(
-            req.url === "/api/version"
-              ? JSON.stringify(versionReport(state.runs))
-              : req.url === "/api/projects"
-                ? JSON.stringify({ projects: [{ projectId: PROJECT }] })
-                : JSON.stringify({ models: [] }),
+            req.url === "/api/handshake"
+              ? JSON.stringify({ identity: versionReport(state.process) })
+              : req.url === "/api/version"
+                ? JSON.stringify(versionReport(state.runs))
+                : req.url === "/api/projects"
+                  ? JSON.stringify({ projects: [{ projectId: PROJECT }] })
+                  : JSON.stringify({ models: [] }),
           );
         });
       });
@@ -1502,6 +1534,44 @@ describe("machines API", () => {
 
         expect(job.result).toEqual({ ok: true, connected: true });
         expect(touched).toEqual([]);
+        expect(remote.state.puts).toHaveLength(1);
+      } finally {
+        remote.close();
+      }
+    });
+
+    it("a machine whose process is behind its disk is installed on and restarted once, then handed the config", async () => {
+      // The report's machine: a hot update moved the disk to this hub's image, the process went
+      // on serving the one before it, and every stream over there fails with nothing saying why.
+      const remote = await machineServer("the image", "an older image");
+      const done: string[] = [];
+      try {
+        await bootOn(remote, {
+          install: async (opts) => {
+            done.push(`install(force: ${String(opts.forceInstaller)})`);
+            return { kind: "installed", output: "done", identity: IDENTITY };
+          },
+          stopServer: async () => {
+            done.push("stop");
+            return { ok: true as const };
+          },
+          startServer: async () => {
+            done.push("start");
+            // What comes back is the build the install left on the disk.
+            remote.state.process = "the image";
+            return { ok: true };
+          },
+        });
+
+        const job = await connect();
+
+        expect(job.result).toEqual({ ok: true, connected: true });
+        expect(done).toEqual(["install(force: true)", "stop", "start"]);
+        expect(job.log.join("\n")).toContain(
+          "It answers 9.9.9+hmr.0123456789ab, not 9.9.9+hmr.cafe01234567; installing 9.9.9+hmr.cafe01234567 there…",
+        );
+        expect(machinesRepo.get("ssh:nas")?.version).toBe(IMAGE.version);
+        // Handed over once, and only to the build it now serves.
         expect(remote.state.puts).toHaveLength(1);
       } finally {
         remote.close();
@@ -2398,29 +2468,22 @@ describe("machines API", () => {
       expect(reconnect()).toMatchObject({
         since: "2026-08-24T12:00:00.000Z",
         attempts: 1,
-        nextAt: "2026-08-24T12:00:10.000Z",
+        nextAt: "2026-08-24T12:00:30.000Z",
         lastError: "Connection refused",
       });
-      // Within ten seconds after the first failure: not tried again.
-      clock = new Date(clock.getTime() + 9_000);
+      // Within thirty seconds after the first failure: not tried again.
+      clock = new Date(clock.getTime() + 29_000);
       await t.deps.machines.autoConnect();
       expect(holds).toBe(1);
       // Once the wait has passed, it is.
       clock = new Date(clock.getTime() + 2_000);
       await t.deps.machines.autoConnect();
       expect(holds).toBe(2);
-      // The second failure doubles the wait: twenty seconds now, so fifteen later is too soon.
-      clock = new Date(clock.getTime() + 15_000);
+      // The second failure doubles the wait: a minute now, so forty-five seconds later is too soon.
+      clock = new Date(clock.getTime() + 45_000);
       await t.deps.machines.autoConnect();
       expect(holds).toBe(2);
-      // However long it stays down, the wait stops growing at five minutes (attempts 3 to 7 here;
-      // the eighth ends the streak — see "keeping machines connected").
-      for (let i = 0; i < 5; i++) {
-        clock = new Date(clock.getTime() + 5 * 60_000);
-        await t.deps.machines.autoConnect();
-      }
-      expect(reconnect()?.attempts).toBe(7);
-      expect(Date.parse(reconnect()!.nextAt!) - clock.getTime()).toBe(5 * 60_000);
+      expect(Date.parse(reconnect()!.nextAt!) - clock.getTime()).toBe(15_000);
     });
   });
 
@@ -2554,14 +2617,14 @@ describe("machines API", () => {
       expect(nas()?.reconnect).toMatchObject({
         since: "2026-08-24T12:00:00.000Z",
         attempts: 0,
-        // Its first try is a few seconds out, so a server restarting itself is back by then.
-        nextAt: "2026-08-24T12:00:05.000Z",
+        // Its first try is a while out, so a server restarting itself is back by then.
+        nextAt: "2026-08-24T12:00:15.000Z",
         lastError: null,
         diagnosis: null,
       });
       await t.deps.machines.autoConnect();
       expect(holds).toBe(1);
-      clock = new Date(clock.getTime() + 5_000);
+      clock = new Date(clock.getTime() + 15_000);
       await t.deps.machines.autoConnect();
       expect(holds).toBe(2);
       expect(nas()?.reconnect).toBeUndefined();
@@ -2781,28 +2844,28 @@ describe("machines API", () => {
       }
     };
 
-    it("eight failures in a row stop the automatic attempts, and the look-over tries nothing after", async () => {
+    it("five failures in a row stop the automatic attempts, and the look-over tries nothing after", async () => {
       const clock = { now: new Date("2026-08-24T12:00:00.000Z") };
       const far = await host(() => clock.now);
-      await lookOver(clock, 8);
-      expect(far.probes).toBe(8);
+      await lookOver(clock, 5);
+      expect(far.probes).toBe(5);
       expect(nas()?.reconnect).toMatchObject({
-        attempts: 8,
-        maxAttempts: 8,
+        attempts: 5,
+        maxAttempts: 5,
         gaveUp: "attempts",
         nextAt: null,
         sshReason: "refused",
       });
       // An hour of look-overs later: not one more try, and still saying it stopped.
       await lookOver(clock, 13);
-      expect(far.probes).toBe(8);
-      expect(nas()?.reconnect).toMatchObject({ attempts: 8, gaveUp: "attempts" });
+      expect(far.probes).toBe(5);
+      expect(nas()?.reconnect).toMatchObject({ attempts: 5, gaveUp: "attempts" });
     });
 
     it("Retry after the stop runs one attempt at once and counts from the first again; a second press meanwhile starts nothing", async () => {
       const clock = { now: new Date("2026-08-24T12:00:00.000Z") };
       const far = await host(() => clock.now);
-      await lookOver(clock, 8);
+      await lookOver(clock, 5);
       expect(nas()?.reconnect?.gaveUp).toBe("attempts");
       let release!: () => void;
       far.hold = new Promise((resolve) => {
@@ -2816,15 +2879,15 @@ describe("machines API", () => {
       )?.reconnect;
       expect(answered).toMatchObject({ since: at(clock.now.getTime()), attempts: 0, nextAt: null });
       expect(answered?.gaveUp).toBeUndefined();
-      await waitFor(() => far.probes === 9);
+      await waitFor(() => far.probes === 6);
       expect((await admin.post(RECONNECT)).status).toBe(200);
       release();
       await waitFor(() => typeof nas()?.reconnect?.nextAt === "string");
-      expect(far.probes).toBe(9);
+      expect(far.probes).toBe(6);
       // It failed again: the first of a new streak, waiting the first doubled wait.
       expect(nas()?.reconnect).toMatchObject({
         attempts: 1,
-        nextAt: at(clock.now.getTime() + 10_000),
+        nextAt: at(clock.now.getTime() + 30_000),
       });
       expect(nas()?.reconnect?.gaveUp).toBeUndefined();
     });
@@ -2832,16 +2895,93 @@ describe("machines API", () => {
     it("Retry while a streak waits out its backoff runs the attempt now, and the count goes on", async () => {
       const clock = { now: new Date("2026-08-24T12:00:00.000Z") };
       const far = await host(() => clock.now);
-      await lookOver(clock, 4);
+      await lookOver(clock, 3);
       expect(nas()?.reconnect).toMatchObject({
-        attempts: 4,
-        nextAt: at(clock.now.getTime() + 80_000),
+        attempts: 3,
+        nextAt: at(clock.now.getTime() + 120_000),
       });
       expect((await admin.post(RECONNECT)).status).toBe(200);
-      await waitFor(() => far.probes === 5 && typeof nas()?.reconnect?.nextAt === "string");
+      await waitFor(() => far.probes === 4 && typeof nas()?.reconnect?.nextAt === "string");
       expect(nas()?.reconnect).toMatchObject({
-        attempts: 5,
-        nextAt: at(clock.now.getTime() + 160_000),
+        attempts: 4,
+        nextAt: at(clock.now.getTime() + 240_000),
+      });
+    });
+
+    const STOP = "/api/projects/default_project/machines/ssh:nas/stop-reconnecting";
+
+    it("Stop retrying while a streak waits stops it at once: nothing runs after it until a Retry, which counts from the first again", async () => {
+      const clock = { now: new Date("2026-08-24T12:00:00.000Z") };
+      const far = await host(() => clock.now);
+      await lookOver(clock, 2);
+      expect(nas()?.reconnect).toMatchObject({
+        attempts: 2,
+        nextAt: at(clock.now.getTime() + 60_000),
+      });
+      const stopped = await admin.post(STOP);
+      expect(stopped.status).toBe(200);
+      const answered = ((await stopped.json()) as MachinesResponse).machines.find(
+        (m) => m.id === "ssh:nas",
+      )?.reconnect;
+      expect(answered).toMatchObject({ attempts: 2, gaveUp: "cancelled", nextAt: null });
+      // An hour of look-overs: not one more try, and a second press changes nothing.
+      await lookOver(clock, 13);
+      expect((await admin.post(STOP)).status).toBe(200);
+      expect(far.probes).toBe(2);
+      expect(nas()?.reconnect).toMatchObject({ attempts: 2, gaveUp: "cancelled" });
+      expect((await admin.post(RECONNECT)).status).toBe(200);
+      await waitFor(() => far.probes === 3 && typeof nas()?.reconnect?.nextAt === "string");
+      expect(nas()?.reconnect).toMatchObject({
+        attempts: 1,
+        nextAt: at(clock.now.getTime() + 30_000),
+      });
+      expect(nas()?.reconnect?.gaveUp).toBeUndefined();
+    });
+
+    it("Stop retrying during an attempt lets it run out and schedules nothing after its failure", async () => {
+      const clock = { now: new Date("2026-08-24T12:00:00.000Z") };
+      const far = await host(() => clock.now);
+      await lookOver(clock, 1);
+      let release!: () => void;
+      far.hold = new Promise((resolve) => {
+        release = resolve;
+      });
+      clock.now = new Date(clock.now.getTime() + 60_000);
+      const running = t.deps.machines.autoConnect();
+      await waitFor(() => far.probes === 2);
+      expect((await admin.post(STOP)).status).toBe(200);
+      release();
+      await running;
+      // Its failure is counted and said; nothing is scheduled after it.
+      expect(nas()?.reconnect).toMatchObject({ attempts: 2, gaveUp: "cancelled", nextAt: null });
+      await lookOver(clock, 13);
+      expect(far.probes).toBe(2);
+    });
+
+    it("Retry after stopping an attempt still under way takes that attempt as its first, and starts no second one", async () => {
+      const clock = { now: new Date("2026-08-24T12:00:00.000Z") };
+      const far = await host(() => clock.now);
+      await lookOver(clock, 3);
+      let release!: () => void;
+      far.hold = new Promise((resolve) => {
+        release = resolve;
+      });
+      clock.now = new Date(clock.now.getTime() + 5 * 60_000);
+      const running = t.deps.machines.autoConnect();
+      await waitFor(() => far.probes === 4);
+      expect((await admin.post(STOP)).status).toBe(200);
+      const retried = await admin.post(RECONNECT);
+      const answered = ((await retried.json()) as MachinesResponse).machines.find(
+        (m) => m.id === "ssh:nas",
+      )?.reconnect;
+      expect(answered).toMatchObject({ attempts: 0, nextAt: null });
+      expect(answered?.gaveUp).toBeUndefined();
+      release();
+      await running;
+      expect(far.probes).toBe(4);
+      expect(nas()?.reconnect).toMatchObject({
+        attempts: 1,
+        nextAt: at(clock.now.getTime() + 30_000),
       });
     });
 

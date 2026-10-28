@@ -17,6 +17,8 @@ import type {
   AgentConfigUpdateRequest,
   AgentCreateRequest,
   AgentCreateResponse,
+  AgentDeleteResponse,
+  AgentDeletionResponse,
   AgentHooksResponse,
   AgentMcpServersResponse,
   AgentImportRequest,
@@ -176,6 +178,7 @@ import type {
   ServerSettingsUpdateRequest,
   SessionCategory,
   SessionContextResponse,
+  ArchivedSessionGroupServers,
   ArchivedSessionGroupsResponse,
   ArchivedSessionsBatch,
   ArchivedSessionsBatchResponse,
@@ -1039,10 +1042,16 @@ export const deleteSession = (sessionId: string) =>
 
 // The archive page (Settings › Archived chats) -------------------------------------------
 
-/** The archive page's groups — one Workspace of one Project each — with their counts, newest first. */
-export const listArchivedSessionGroups = (query: ArchivedSessionsQuery = {}) =>
+/**
+ * The archive page's groups — one Workspace of one Project each — with their counts, newest
+ * first: this server's and the machines' (`servers` narrows it to one side).
+ */
+export const listArchivedSessionGroups = (
+  query: ArchivedSessionsQuery = {},
+  servers?: ArchivedSessionGroupServers,
+) =>
   apiFetch<ArchivedSessionGroupsResponse>("/api/me/archived-sessions/groups", {
-    query: { q: query.q, source: query.source, projectId: query.projectId },
+    query: { q: query.q, source: query.source, projectId: query.projectId, servers },
   });
 
 /**
@@ -1591,10 +1600,22 @@ export const getUsage = (
 
 // Agent deletion & Workspace files --------------------------------------------------
 
+/**
+ * Deletes an Agent. The answer carries the background removal of its files to follow; a server
+ * from before that removal moved to the background answers 204 once everything is gone, which
+ * reads as undefined here.
+ */
 export const deleteAgent = (projectId: string, agentId: string, machineId: string | null) =>
-  apiFetch<void>(
+  apiFetch<AgentDeleteResponse | undefined>(
     `/api/projects/${encodeURIComponent(projectId)}/agents/${encodeURIComponent(agentId)}`,
     { method: "DELETE", server: machineId },
+  );
+
+/** Where a delete's background removal stands (404 `agent_deletion_not_found` once it is unknown). */
+export const getAgentDeletion = (projectId: string, deletionId: string, machineId: string | null) =>
+  apiFetch<AgentDeletionResponse>(
+    `/api/projects/${encodeURIComponent(projectId)}/agent-deletions/${encodeURIComponent(deletionId)}`,
+    { server: machineId },
   );
 
 export const listWorkspaceFiles = (sessionId: string, path: string) =>
@@ -2248,6 +2269,13 @@ export const connectMachine = (projectId: string, machineId: string) =>
 export const reconnectMachine = (projectId: string, machineId: string) =>
   apiFetch<MachinesResponse>(
     `/api/projects/${encodeURIComponent(projectId)}/machines/${encodeURIComponent(machineId)}/reconnect`,
+    { method: "POST", body: {} },
+  );
+
+/** Stop retrying: the server stops bringing that machine back until a Retry (200, the list). */
+export const stopReconnectingMachine = (projectId: string, machineId: string) =>
+  apiFetch<MachinesResponse>(
+    `/api/projects/${encodeURIComponent(projectId)}/machines/${encodeURIComponent(machineId)}/stop-reconnecting`,
     { method: "POST", body: {} },
   );
 

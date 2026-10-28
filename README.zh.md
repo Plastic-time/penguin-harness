@@ -65,7 +65,7 @@ PenguinHarness 是开源的 Agent 自进化（recursive self-improvement, RSI）
 | `ace-rsi-toolkit` | [ACE](https://arxiv.org/abs/2510.04618)：把 Trace 中的经验提炼成 playbook |
 | `awm-rsi-toolkit` | [AWM](https://arxiv.org/abs/2409.07429)：从成功的运行中归纳出工作流 |
 
-每个新建的 Project 都自带七个 Benchmark，以 Harbor 任务的形式跑在 Docker 里：PenguinHarness Benchmark Sec A 到 Sec E（来自 rag-bench-essential、DeepSWE、AutomationBench、Terminal-Bench-Science 和 Terminal-Bench），以及 GDPevo Train 和 Test。更多 Benchmark 见 [penguin-harness-benchmark](https://github.com/Prism-Shadow/penguin-harness-benchmark)。
+每个新建的 Project 都自带十七个 Benchmark，以 Harbor 任务的形式跑在 Docker 里：PenguinHarness Benchmark Sec A 到 Sec E（来自 rag-bench-essential、DeepSWE、AutomationBench、Terminal-Bench-Science 和 Terminal-Bench），以及 GDPEVO 的 CRM、ERP、Finance、Healthcare、Legal 和 DataAnalysis 六个领域各自的 Train/Test 对，共十二个 GDPEVO 条目。更多 Benchmark 见 [penguin-harness-benchmark](https://github.com/Prism-Shadow/penguin-harness-benchmark)。
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/Prism-Shadow/penguin-harness-community/main/blog-assets/penguinharness-0-2-14-benchmark-detail-zh.png" alt="一个 Benchmark 的分数图：三个 Agent 随版本一路攀升" width="820" />
@@ -185,7 +185,7 @@ Claude 5.5 的 OpenCode Go 预设为 Haiku；Fable 5.1、Opus 5.5 和 Sonnet 5.5
 ### Docker
 
 ```bash
-docker run -d --name penguin -p 127.0.0.1:7364:7364 -v penguin-data:/data hiyouga/penguinharness:0.2.17
+docker run -d --name penguin -p 127.0.0.1:7364:7364 -v penguin-data:/data hiyouga/penguinharness:0.2.18
 docker logs penguin       # 首次登录链接，在本机可原样打开
 ```
 

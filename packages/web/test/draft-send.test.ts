@@ -35,11 +35,12 @@ import {
   mountDraft,
 } from "./helpers/draft-world";
 
-// The page's socket streams are the test's to drive: the draft world pushes the server's user
-// events into the handlers the page registers (helpers/api-socket-world.ts). One-shot calls
-// stay on fetch, as they are before the socket's first handshake; the transport itself —
-// frames, reconnects, deadlines — is pinned by api-socket.test.ts.
-vi.mock("../src/api/socket", async (importActual) => {
+// The page's socket is the test's to drive: the draft world pushes the server's user events
+// into the handlers the page registers (helpers/api-socket-world.ts) and carries calls over
+// the suite's fetch, as test/socket-stand-in.ts does for every suite. Mocked at the stand-in
+// the app imports (vitest.config.ts) — the one seam; the transport itself, frames, reconnects
+// and deadlines, is pinned by api-socket.test.ts.
+vi.mock("../test/socket-stand-in", async (importActual) => {
   const actual = await importActual<typeof import("../src/api/socket")>();
   const { socketWorld } = await import("./helpers/api-socket-world");
   return { ...actual, apiSocket: socketWorld.apiSocket };
