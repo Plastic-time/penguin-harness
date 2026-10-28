@@ -141,7 +141,7 @@ export interface SubagentHandle {
   /** Pins the child Session's thinking level (`Session.thinkingLevel`: applied from its next LLM request) — a host panel's pick on a live child. Optional, like `steer`. */
   setThinkingLevel?(level: ThinkingLevelName): void;
   /** Releases runtime resources held by the child Session (e.g. its managed command sessions). Idempotent. */
-  dispose(): void;
+  dispose(): void | Promise<void>;
 }
 
 /** Every thinking level name, the `ThinkingLevelName` vocabulary as a runtime list (validating a wire value — the server's PATCH and Agent-config routes). */

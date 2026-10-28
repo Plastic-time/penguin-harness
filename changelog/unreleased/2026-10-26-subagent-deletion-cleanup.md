@@ -12,3 +12,5 @@ Session deletion included background subagent cancellation cleanup in its existi
 Stopping only the main Task continued to leave background subagents running.
 
 Cancelled children remained owned until cleanup settled, even when listing or looking up live children hid them before background registration.
+
+Cleanup also waited for descendants owned by a resumed child, including when the direct child had already finished its turn.
