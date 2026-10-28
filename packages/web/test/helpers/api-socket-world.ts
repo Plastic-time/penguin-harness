@@ -4,11 +4,13 @@
  * one (draft-send.test.ts) so the page's own stream handlers are what receive the events; the
  * transport itself — frames, reconnects, deadlines — stays pinned by api-socket.test.ts.
  *
- * One-shot calls stay on fetch (`isOpen()` false, as before the first handshake): a page's calls
- * do not depend on which transport carries them.
+ * Calls are carried the way test/socket-stand-in.ts carries them: over the suite's own `fetch`,
+ * answered in the socket's shape. A page's calls do not depend on which transport carries them,
+ * and the app has one now.
  */
 import type { ServerEvent } from "@prismshadow/penguin-server/api";
 import type { StreamConnection, StreamHandlers } from "../../src/api/sse";
+import { carryOverTestFetch } from "./carry";
 
 interface OpenStream {
   path: string;
@@ -20,15 +22,19 @@ class ApiSocketWorld {
 
   /** The module's `apiSocket`, for the suite's `vi.mock` factory. */
   readonly apiSocket = {
-    isOpen: () => false,
+    isOpen: () => true,
     isUnavailable: () => false,
-    ready: async () => false,
-    call: () => Promise.reject(new Error("socket_closed")),
+    ready: async () => true,
+    call: (
+      method: string,
+      url: string,
+      opts?: { headers?: Record<string, string>; body?: unknown },
+    ) => carryOverTestFetch(method, url, opts ?? {}),
     identityIs: () => undefined,
     identityChanged: () => undefined,
     report: () => ({
-      state: "closed",
-      lastFrameAgoMs: null,
+      state: "open",
+      lastFrameAgoMs: 0,
       pendingCalls: [],
       streams: this.streams.map((stream) => stream.path),
     }),

@@ -87,7 +87,7 @@ curl -H "Authorization: Bearer $(cat ~/.penguin/data/api-token)" \
 
 `sessionToken` 是原始管理员凭据。Penguin Remote 的本地代理负责在公网域名的响应中把它写入上述名称的 Cookie。客户端不得记录或缓存本地 API token 以及返回的会话 token。
 
-桌面端的服务端信任转发头，并据此得出浏览器所在的地址（见[安全](/security#网络暴露面)）。因此本地代理转发每个请求时（含 WebSocket 升级），都应当把 `X-Forwarded-Proto` 覆盖为 `https`、把 `X-Forwarded-Host` 覆盖为公网主机名，各只带一个值。对于在此之前发布的桌面端，它还把浏览器的 `Origin` 由 `https://<公网主机名>` 改写为 `http://<公网主机名>`；0.3.0 之前它不再改写 `Origin`，只发送这两个头；从 0.3.0 起，服务端不再接受改写后的 `http://` Origin。
+桌面端的服务端信任转发头，并据此得出浏览器所在的地址（见[安全](/security#网络暴露面)）。因此本地代理转发每个请求时（含 WebSocket 升级），都应当让 `Host` 保持为公网主机名，并把 `X-Forwarded-Proto` 覆盖为 `https`、把 `X-Forwarded-Host` 覆盖为公网主机名，各只带一个值。对于在此之前发布的桌面端，它还把浏览器的 `Origin` 由 `https://<公网主机名>` 改写为 `http://<公网主机名>`，只有桌面端的服务端接受这个改写后的值；0.3.0 之前它不再改写 `Origin`，只发送这两个头；从 0.3.0 起，服务端不再接受改写后的 `http://` Origin。
 
 ## 认证与账号
 
@@ -108,7 +108,7 @@ curl -H "Authorization: Bearer $(cat ~/.penguin/data/api-token)" \
 | PATCH | `/api/me/drafts` | 按键写入草稿，值为 `null` 即删除：`{drafts}`，每次至多 50 条；返回 `204` |
 | GET | `/api/me/background-image` | 你的背景图片：`{image, imageId}`，没有时两者都为 `null` |
 | PUT | `/api/me/background-image` | 设置背景图片（不超过 1 MiB 的 PNG、JPEG 或 WebP data URL），传 `null` 即移除：`{image}` → `{imageId}` |
-| GET | `/api/me/archived-sessions/groups` | [设置 › 已归档对话](/settings#已归档对话)的分组：`?q=&source=&projectId=` → `{groups, total, asOf}` |
+| GET | `/api/me/archived-sessions/groups` | [设置 › 已归档对话](/settings#已归档对话)的分组：`?q=&source=&projectId=&servers=` → `{groups, total, asOf}` |
 | GET | `/api/me/archived-sessions` | 一个分组中的已归档 Session：`?projectId=&workspace=&limit=&before=&q=&source=` → `{sessions, hasMore}` |
 | POST | `/api/me/archived-sessions/unarchive` | 批量取消归档：`{sessionIds}` 或 `{filter}` → `{done, missing}` |
 | POST | `/api/me/archived-sessions/delete` | 批量删除：`{sessionIds}` 或 `{filter}` → `{done, missing}` |
@@ -122,7 +122,7 @@ curl -H "Authorization: Bearer $(cat ~/.penguin/data/api-token)" \
   - 任何已认证的会话都可以调用，包括桌面 shell 的 token 会话。与修改密码的接口不同，修改资料没有旧凭证需要校验。
 - `/api/me/archived-sessions` 及其三个子路由为[设置 › 已归档对话](/settings#已归档对话)提供数据。它们覆盖调用者拥有或参与的所有 Project 中已归档的 Session，只含本服务器；Project 的所有者或成员可以操作其中任何 Session，不论由谁创建。用户归档的 Session，以及 `source` 为 `api`、`schedule`、`cli` 或 `workbench` 且用户没有取消归档的 Session，都是已归档的；见 [Session 创建与目录浏览](#session-创建与目录浏览)。
   - 过滤参数通用。`q` 按标题做不区分大小写的匹配，最多 200 个字符；没有标题的 Session 按其 Trace 的首轮标题匹配。`source` 取 `user`（亲手归档的）、`api`、`schedule`、`cli` 或 `workbench`。`projectId` 只看一个 Project，不存在或调用者无权进入时返回 `404` `project_not_found`。
-  - `GET /api/me/archived-sessions/groups` 返回 `{groups: [{projectId, projectName, workspace, count, latest}], total, asOf}`，每个 Project 的每个 Workspace 一组。`workspace` 是 Workspace 路径，合并的临时 Workspace 记为 `temp`。`latest` 是组内最新的 `lastActiveAt`，分组按它从新到旧排列。`total` 是各组计数之和，`asOf` 是服务端取这些计数的时刻。
+  - `GET /api/me/archived-sessions/groups` 返回 `{groups: [{projectId, projectName, workspace, count, latest}], total, asOf}`，每个 Project 的每个 Workspace 一组。`workspace` 是 Workspace 路径，合并的临时 Workspace 记为 `temp`。`latest` 是组内最新的 `lastActiveAt`，分组按它从新到旧排列。`total` 是各组计数之和，`asOf` 是服务端取这些计数的时刻。`servers=here` 只返回本服务端的分组、不询问任何机器，`servers=machines` 只返回机器上的分组；Web App 分两次询问，一台不应答的机器因此不会拖住本服务端的分组。
   - `GET /api/me/archived-sessions` 按最近活动从新到旧分页读取一个分组。`projectId`、`workspace` 和 `limit`（1–100）必填，`before=<lastActiveAt>,<sessionId>` 与 Session 列表一样从已持有的最后一行之后继续。没有标题的行带上其 Trace 的首轮标题。
   - 两个批量路由接受 `{sessionIds: [...]}`（1–500 个 id）或 `{filter: {q?, source?, projectId?, workspace?, until?, exclude?}}`（代表过滤条件匹配的全部已归档 Session），返回 `{done, missing}`。过滤条件的 `until` 是某次分组响应的 `asOf`：此时批量操作只作用于那一刻已归档、此后没有活动的 Session，计数之后才归档、新开或运行过的 Session 不受影响。`exclude`（1–500 个 id）把这些 Session 排除在外，即**全选**之后又取消勾选的行。每个 Session 都走与 `PATCH` 或 `DELETE /api/sessions/:id` 相同的路径，每个 Session 一个事件。取消归档时 `done` 只计原本已归档的 Session；删除则删除点名的每一个 Session，无论是否已归档，运行中的先中止，但按过滤条件删除时会跳过运行中的 Session，也不计入 `done`。`missing` 列出不存在或调用者无权访问的 id；过滤形式不会产生 `missing`。
 
@@ -235,7 +235,8 @@ PUT 时，请求省略的字段保持原值，`null` 或 `""` 清除该字段，
 | POST | `/api/projects/:projectId/machines/stop-using` | 把 `{machines: [id…]}` 从本 Project 删除：断开各自的连接，不再保持连接；那台机器上的程序与数据都保留，ssh 配置里的主机也不变 |
 | POST | `/api/projects/:projectId/machines/:machineId/install` | 开始在这台主机上安装当前构建，并将这台主机分配给本 Project；任务运行期间返回 `202`，响应体相同 |
 | POST | `/api/projects/:projectId/machines/:machineId/connect` | 启动那台机器的服务器，并维持那条唯一的连接，此后保持连接；connect 任务运行期间返回 `202`，响应体相同 |
-| POST | `/api/projects/:projectId/machines/:machineId/reconnect` | 重试连回本服务端保持连接的机器：跳过下次尝试前剩余的等待（次数不变），或在自动重连停止后（连续失败 8 次，或重试也不会好转的 ssh 失败）重新开始一轮；正在尝试或已连接时什么都不做。返回 `200` 与列表，或 `409`（`job_running`、`password_refused`、`not_kept_connected`） |
+| POST | `/api/projects/:projectId/machines/:machineId/reconnect` | 重试连回本服务端保持连接的机器：跳过下次尝试前剩余的等待（次数不变），或在自动重连停止后（连续失败 5 次、重试也不会好转的 ssh 失败，或已放弃重试）重新开始一轮；正在尝试或已连接时什么都不做。返回 `200` 与列表，或 `409`（`job_running`、`password_refused`、`not_kept_connected`） |
+| POST | `/api/projects/:projectId/machines/:machineId/stop-reconnecting` | 放弃重试：停止连回这台机器（`reconnect.gaveUp: "cancelled"`），直到再次重试；正在进行的那次尝试会跑完，之后不再安排。没有可停的不算错误。返回 `200` 与列表 |
 | POST | `/api/projects/:projectId/machines/:machineId/disconnect` | 断开连接、不再保持连接，远端服务器继续运行 |
 | POST | `/api/projects/:projectId/machines/:machineId/restart` | 停止那台机器的服务器，并在同一端口重新启动；返回 `202`，那台机器有任务在运行时返回 `409` |
 | POST | `/api/projects/:projectId/machines/:machineId/stop` | 停止那台机器的服务器，不再保持连接，安装保留；返回 `202` 或 `409` |
@@ -512,7 +513,8 @@ flow id 指向的流程不存在时返回 `404 platform_auth_flow_not_found`。`
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET / POST | `/agents` | 列出 Agent / 创建 Agent |
-| DELETE | `/agents/:agentId` | 删除一个 Agent（仅所有者） |
+| DELETE | `/agents/:agentId` | 删除一个 Agent（仅所有者）：目录以一次 rename 移出 agents 目录，文件在后台删除 → `202 {deletion}`；其他程序打开着目录里的文件时返回 `409 agent_folder_busy`，什么都不删 |
+| GET | `/agent-deletions/:deletionId` | 一次删除在后台进行到哪一步（仅所有者）：`{deletion: {phase: counting\|removing\|done\|failed, total, removed, error?}}` |
 | GET / PUT | `/agents/:agentId/config` | 读取 / 写入配置（`AGENTS.md` 和 `system_config.yaml`；PUT 保留 YAML 注释） |
 | POST | `/agents/:agentId/config/mcp-test` | 测试一条 MCP 服务器配置：`{name, config}` → `{ok, tools?, error?, latencyMs?, saveFirst?}` |
 | POST | `/agents/:agentId/config/kernel-update` | 将配置合并升级到当前默认值：→ `{advanced, kept, kernelVersion}` |
@@ -1328,7 +1330,7 @@ Agent 用 `penguin browser` 驱动的浏览器，路由位于 `/api/builtin-brow
 - `POST /api/desktop/shutdown` 不使用 cookie 会话。它用桌面 shell 专有的 Bearer token 认证（否则返回 `401` `unauthorized`），先应答，再立即开始优雅关闭。
 - update、tray 和 privacy-settings 路由只响应桌面 shell 自己的窗口：其他任何会话都会得到 `403` `desktop_shell_only`。shell 未监听时，返回 `503` `shell_unreachable`。`showTrayIcon` 不是布尔值时，`PUT /api/desktop/tray` 返回 `400` `invalid_show_tray_icon`；`locale` 不是 `zh` 或 `en` 时返回 `400` `invalid_locale`；两个字段都未提供时返回 `400` `empty_tray_patch`。PUT 只确认收到更改；请用 GET 读回实际结果。
 - `pane` 不是 `files`（文件与文件夹）或 `fullDisk`（完全磁盘访问权限）时，`POST /api/desktop/privacy-settings` 返回 `400` `invalid_privacy_pane`。shell 只在 macOS 上打开面板。
-- `/api/hmr` 路由仅限管理员（`403` `forbidden`）。绑定在非环回地址上时还要求 HTTPS，否则返回 `403` `hmr_disabled`。只有 `PENGUIN_TRUST_PROXY=1` 时 `X-Forwarded-Proto` 才生效。升级完成后，每个已连接的客户端都会收到 `web_updated` 并重新加载。
+- `/api/hmr` 路由仅限管理员（`403` `forbidden`）。绑定在非环回地址上时还要求 HTTPS，否则返回 `403` `hmr_disabled`。只有 `PENGUIN_TRUST_PROXY=1` 时 `X-Forwarded-Proto` 才生效，而且只认单个值 `https`。升级完成后，每个已连接的客户端都会收到 `web_updated` 并重新加载。
 
 ## 流式传输（SSE）
 
@@ -1449,7 +1451,7 @@ export type ServerEvent =
 
 API 套接字是同一个 API 的第二种传输，供自带的 Web App 使用（PRFC-0011）：一个标签页一条套接字，每一帧是对既有端点的一次调用，每个长期的流是一次不结束的调用。上文没有任何东西是它特有的——HTTP 与套接字进入同一批路由，一次调用的授权、校验与应答与它的 HTTP 孪生完全一致。
 
-它有自己的 upgrade 路由：`GET /api/socket`（Upgrade；`@prismshadow/penguin-server/api` 的 `apiSocketPath()` 负责拼写）。握手沿用终端流的那一套——会话 Cookie 与同源的 `Origin`（或没有）——之后套接字以该 Cookie 命名的用户身份服务每次调用，每次调用都以建立套接字时的[公共源](/security#网络暴露面)为地址，与 HTTP 请求一致。它不创建、不列出、也不触碰任何终端，不涉及终端 id，因此也没有可伪造的 id。运行时自有的前缀（`/api/auth`、`/api/hmr`、`/api/desktop`）回 `421 not_on_socket`，客户端改经 HTTP 发起。
+它有自己的 upgrade 路由：`GET /api/socket`（Upgrade；`@prismshadow/penguin-server/api` 的 `apiSocketPath()` 负责拼写）。握手沿用终端流的那一套——会话 Cookie、同源的 `Origin`（或没有），以及浏览器发送 `Sec-Fetch-Site` 时它的值须为 `same-origin`——之后套接字以该 Cookie 命名的用户身份服务每次调用，每次调用都以建立套接字时的[公共源](/security#网络暴露面)为地址，与 HTTP 请求一致。它不创建、不列出、也不触碰任何终端，不涉及终端 id，因此也没有可伪造的 id。运行时自有的前缀（`/api/auth`、`/api/hmr`、`/api/desktop`）回 `421 not_on_socket`，客户端改经 HTTP 发起。
 
 帧是 JSON 文本帧，id 由客户端分配、在套接字生命周期内唯一：
 
