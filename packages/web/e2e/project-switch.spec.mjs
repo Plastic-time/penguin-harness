@@ -113,16 +113,22 @@ async function twoProjects(request, user) {
 }
 
 /**
- * Records every browser request that names an Agent under a Project that has no such Agent —
- * in the path (`/api/projects/:p/agents/:a/…`), in an `agentId` query, or in a session-list
- * batch body — and every answer that says `agent_not_found`. Requests about Projects outside
+ * Records every request that names an Agent under a Project that has no such Agent — in the
+ * path (`/api/projects/:p/agents/:a/…`), in an `agentId` query, or in a session-list batch
+ * body — and every answer that says `agent_not_found`. Requests about Projects outside
  * `agentsOf` are not judged.
+ *
+ * Every call now rides the API socket as a frame, where `page.on("request")` cannot see it
+ * (`packages/web/src/api/socket.ts`); the socket is judged too, by the same rule, so this
+ * watch stays exactly as strong as it was over HTTP instead of quietly seeing nothing. The
+ * few calls HTTP still carries (auth, a read retried after a socket timeout) are judged by
+ * the page events as before, so neither transport escapes the watch.
  */
-function watchProjectAgentPairs(page, agentsOf) {
+function watchProjectAgentPairs(page, agentsOf, frames) {
   const bad = [];
   watched = bad;
-  page.on("request", (req) => {
-    const url = new URL(req.url());
+  const judgeRequest = (method, path, body) => {
+    const url = new URL(path, BASE);
     const parts = url.pathname.split("/").map((p) => decodeURIComponent(p));
     // ["", "api", "projects", projectId, kind, rest…]
     if (parts[1] !== "api" || parts[2] !== "projects" || parts[3] === undefined) return;
@@ -132,23 +138,43 @@ function watchProjectAgentPairs(page, agentsOf) {
     if (parts[4] === "agents" && parts[5] !== undefined && parts[5] !== "") named.push(parts[5]);
     const queried = url.searchParams.get("agentId");
     if (queried) named.push(queried);
-    if (parts[4] === "sessions" && parts[5] === "batch" && req.method() === "POST") {
-      const body = JSON.parse(req.postData() ?? "{}");
-      for (const r of body.requests ?? []) named.push(r.agentId);
+    if (parts[4] === "sessions" && parts[5] === "batch" && method === "POST") {
+      for (const r of body?.requests ?? []) named.push(r.agentId);
     }
     for (const agentId of named) {
       if (!known.has(agentId)) {
-        bad.push(`${req.method()} ${url.pathname}${url.search} names ${agentId} under ${parts[3]}`);
+        bad.push(`${method} ${url.pathname}${url.search} names ${agentId} under ${parts[3]}`);
       }
     }
+  };
+  const judgeAnswer = (method, path, status, body) => {
+    if (status !== 404) return;
+    const text = typeof body === "string" ? body : JSON.stringify(body ?? "");
+    if (text.includes("agent_not_found")) {
+      bad.push(`agent_not_found from ${method} ${new URL(path, BASE).pathname}`);
+    }
+  };
+  page.on("request", (req) => {
+    const url = new URL(req.url());
+    let body;
+    if (req.method() === "POST") {
+      try {
+        body = JSON.parse(req.postData() ?? "{}");
+      } catch {
+        body = undefined;
+      }
+    }
+    judgeRequest(req.method(), `${url.pathname}${url.search}`, body);
   });
   page.on("response", async (res) => {
     if (res.status() !== 404 || !res.url().includes("/api/")) return;
     const body = await res.text().catch(() => "");
-    if (body.includes("agent_not_found")) {
-      bad.push(`agent_not_found from ${res.request().method()} ${new URL(res.url()).pathname}`);
-    }
+    judgeAnswer(res.request().method(), new URL(res.url()).pathname, res.status(), body);
   });
+  frames.onCall((call) => judgeRequest(call.method, call.path, call.body));
+  frames.onAnswer((answer, call) =>
+    judgeAnswer(call.method, call.path, answer.status, answer.body),
+  );
   return bad;
 }
 
@@ -264,42 +290,120 @@ test("clicking the current Project in the dropdown: Agent and Session lists must
   await page.keyboard.press("Escape");
 });
 
+/** One frame of the API socket, or null for anything that is not JSON. */
+function socketFrame(message) {
+  try {
+    return JSON.parse(typeof message === "string" ? message : message.toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
 /**
- * These tests observe HTTP requests (`page.route`, `waitForResponse`/`waitForRequest`); the API
- * socket would carry those calls as frames, invisible to Playwright. Leave the page on the HTTP
- * transport the assertions are written for.
+ * Watches — and steers — the page's API socket, the transport every call now rides
+ * (`packages/web/src/api/socket.ts`): a call is one `{ id, call: { method, path, body } }`
+ * frame out, and its answer one `{ id, status, body }` frame back (`stream` frames follow for
+ * an event stream). `page.route` and `waitForResponse` see plain HTTP only, so a test that
+ * keeps waiting on them would wait for nothing: the frames below are what these tests hold
+ * back, slow down and judge.
+ *
+ * Installed before `goto`. Returns the frames seen, and the handles used below:
+ * - `onCall(fn)` / `onAnswer(fn)` — called with each call frame, or each answer frame and its
+ *   call, after registration;
+ * - `hold(path, ms)` — hold the first call whose `path` is exactly `path` here for `ms`, then
+ *   forward its frame to the server;
+ * - `slowDown(fn)` — let every call reach the server `fn()` ms late: each call frame waits
+ *   `fn()` ms here before it is forwarded;
+ * - `nextCall(test)` — a promise for the next call frame `test(call)` accepts;
+ * - `nextAnswer(test)` — a promise for the next answer frame whose call `test(call)` accepts.
  */
-async function useHttpTransport(page) {
-  await page.addInitScript(() => {
-    Object.defineProperty(window, "WebSocket", { value: undefined, configurable: true });
-  });
+async function watchSocket(page) {
+  const calls = [];
+  const answers = [];
+  const callHooks = [];
+  const answerHooks = [];
+  const callWaiters = [];
+  const answerWaiters = [];
+  const holds = [];
+  let slowdown = null;
+  const callOf = new Map();
+
+  await page.routeWebSocket(
+    (url) => url.pathname === "/api/socket",
+    (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((message) => {
+        const frame = socketFrame(message);
+        // A cancel (`{ id, cancel: true }`) names no endpoint and is not a call.
+        if (frame === null || frame.call === undefined) {
+          server.send(message);
+          return;
+        }
+        const call = {
+          id: frame.id,
+          method: frame.call.method,
+          path: frame.call.path,
+          body: frame.call.body,
+        };
+        callOf.set(call.id, call);
+        calls.push(call);
+        for (const hook of callHooks) hook(call);
+        let delay = slowdown === null ? 0 : slowdown();
+        const held = holds.findIndex((hold) => hold.path === call.path);
+        if (held !== -1) delay += holds.splice(held, 1)[0].ms;
+        for (let i = callWaiters.length - 1; i >= 0; i -= 1) {
+          if (callWaiters[i].test(call)) callWaiters.splice(i, 1)[0].resolve(call);
+        }
+        if (delay > 0) setTimeout(() => server.send(message), delay);
+        else server.send(message);
+      });
+      server.onMessage((message) => {
+        const frame = socketFrame(message);
+        if (frame !== null && typeof frame.id === "number") {
+          answers.push(frame);
+          const call = callOf.get(frame.id);
+          if (call !== undefined) for (const hook of answerHooks) hook(frame, call);
+          for (let i = answerWaiters.length - 1; i >= 0; i -= 1) {
+            const waiter = answerWaiters[i];
+            if (call !== undefined && waiter.test(call)) {
+              answerWaiters.splice(i, 1)[0].resolve(frame);
+            }
+          }
+        }
+        ws.send(message);
+      });
+    },
+  );
+
+  return {
+    calls,
+    answers,
+    onCall: (fn) => callHooks.push(fn),
+    onAnswer: (fn) => answerHooks.push(fn),
+    hold: (path, ms) => holds.push({ path, ms }),
+    slowDown: (fn) => {
+      slowdown = fn;
+    },
+    nextCall: (test) => new Promise((resolve) => callWaiters.push({ test, resolve })),
+    nextAnswer: (test) => new Promise((resolve) => answerWaiters.push({ test, resolve })),
+  };
 }
 
 test("a late Agent list of the Project just left never shows under the new one", async ({
   page,
 }) => {
   const { a, agentsOf } = await twoProjects(page.request, userFor("projlate"));
-  const bad = watchProjectAgentPairs(page, agentsOf);
-  await useHttpTransport(page);
+  const frames = await watchSocket(page);
+  const bad = watchProjectAgentPairs(page, agentsOf, frames);
   await page.addInitScript((projectId) => {
     localStorage.setItem("penguin.lastProjectId", projectId);
   }, a);
 
-  // A's first Agent list is held back until after the switch to B has been answered.
-  let held = true;
-  await page.route(
-    (url) => url.pathname === `/api/projects/${a}/agents`,
-    async (route) => {
-      if (held) {
-        held = false;
-        await new Promise((resolve) => setTimeout(resolve, 3_000));
-      }
-      await route.continue();
-    },
-  );
-  const lateAnswer = page.waitForResponse(
-    (res) => new URL(res.url()).pathname === `/api/projects/${a}/agents`,
-  );
+  // A's first Agent list is held back until after the switch to B has been answered: the call
+  // frame waits here for three seconds, then goes to the server like any other, and the answer
+  // awaited below is that call's own frame coming back.
+  frames.hold(`/api/projects/${a}/agents`, 3_000);
+  const lateAnswer = frames.nextAnswer((call) => call.path === `/api/projects/${a}/agents`);
 
   await page.goto("/agents");
   await switchProject(page, "Alpha Project", "Beta Project");
@@ -320,8 +424,8 @@ test("on a slow machine, quick Project switches keep each Project's Agents and c
   test.setTimeout(180_000);
   const user = userFor("projslow");
   const { a, b, sessions, agentsOf } = await twoProjects(page.request, user);
-  const bad = watchProjectAgentPairs(page, agentsOf);
-  await useHttpTransport(page);
+  const frames = await watchSocket(page);
+  const bad = watchProjectAgentPairs(page, agentsOf, frames);
   await page.addInitScript(
     ({ a, b, user }) => {
       localStorage.setItem("penguin.lastProjectId", a);
@@ -339,14 +443,7 @@ test("on a slow machine, quick Project switches keep each Project's Agents and c
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Emulation.setCPUThrottlingRate", { rate: 6 });
   const random = seededRandom(20261015);
-  await page.route(
-    (url) => url.pathname.startsWith("/api/"),
-    async (route) => {
-      const delay = 100 + Math.floor(random() * 700);
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      await route.continue().catch(() => undefined);
-    },
-  );
+  frames.slowDown(() => 100 + Math.floor(random() * 700));
 
   const conversationOf = (projectId) => new RegExp(`/chat/(${sessions[projectId]}|new)$`);
   await page.goto(`/chat/${sessions[a]}`);
@@ -389,8 +486,8 @@ test("on a slow machine, quick Project switches keep each Project's Agents and c
 
   // The cost center, opened on A's Agent by its deep link (an in-app navigation), then B.
   await switchProject(page, "Beta Project", "Alpha Project");
-  const filtered = page.waitForRequest((req) => {
-    const url = new URL(req.url());
+  const filtered = frames.nextCall((call) => {
+    const url = new URL(call.path, BASE);
     return (
       url.pathname === `/api/projects/${a}/usage` &&
       url.searchParams.get("agentId") === "alpha_only"

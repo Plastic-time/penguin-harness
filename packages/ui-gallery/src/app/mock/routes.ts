@@ -17,6 +17,8 @@ import type {
   AgentApiSettings,
   AgentConfigResponse,
   AgentCreateResponse,
+  AgentDeleteResponse,
+  AgentDeletionInfo,
   AgentHooksResponse,
   AgentMcpServerItem,
   AgentMcpServersResponse,
@@ -830,8 +832,20 @@ router
     if (agent.agentId === IDS.agents.docs)
       fail(409, "agent_builtin", "The docs Agent is the demo's; it stays.");
     ctx.store.f.agents = ctx.store.f.agents.filter((a) => a.agentId !== agent.agentId);
-    return empty();
-  });
+    // The demo has no files to remove: the deletion is over as it answers.
+    const deletion: AgentDeletionInfo = {
+      deletionId: `${agent.agentId}-0`,
+      agentId: agent.agentId,
+      phase: "done",
+      total: 0,
+      removed: 0,
+    };
+    return json({ deletion } satisfies AgentDeleteResponse, 202);
+  })
+  // No removal ever runs in the background here, so no deletion is known.
+  .get("/api/projects/:projectId/agent-deletions/:deletionId", () =>
+    fail(404, "agent_deletion_not_found", "No such deletion is in progress."),
+  );
 
 // ---------------------------------------------------------------------------------------------
 // An Agent's public API: its switches, approval mode and keys (the stream itself is not mocked)
@@ -1200,6 +1214,10 @@ function batchIds(store: DemoStore, body: unknown): string[] {
 
 router
   .get("/api/me/archived-sessions/groups", ({ store, query }): ArchivedSessionGroupsResponse => {
+    // The demo runs on no machine: the machines' side of the archive holds nothing.
+    if (query.get("servers") === "machines") {
+      return { groups: [], total: 0, asOf: new Date().toISOString() };
+    }
     const groups = new Map<string, ArchivedSessionGroup>();
     const rows = archivedRows(store, query);
     for (const row of rows) {
@@ -2476,9 +2494,12 @@ router
     readOnly("install on a machine"),
   )
   .post("/api/projects/:projectId/machines/:machineId/connect", () => readOnly("connect a machine"))
-  // Nothing in the fixtures is being brought back: a Retry finds nothing to do, as the server
-  // answers for a machine that is up.
+  // Nothing in the fixtures is being brought back: a Retry or a Stop retrying finds nothing to
+  // do, as the server answers for a machine that is up.
   .post("/api/projects/:projectId/machines/:machineId/reconnect", ({ store }) =>
+    machinesResponse(store),
+  )
+  .post("/api/projects/:projectId/machines/:machineId/stop-reconnecting", ({ store }) =>
     machinesResponse(store),
   )
   .post("/api/projects/:projectId/machines/:machineId/restart", () => readOnly("restart a machine"))

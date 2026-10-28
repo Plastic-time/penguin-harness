@@ -185,8 +185,8 @@ it("Agent DELETE cancels and drains its child's cleanup through the real route",
     await waitFor(p.aborted);
     expect(p.disposed()).toBe(false);
     p.releaseCleanup.resolve();
-    // Older heads completed inline; current main accepts the background directory purge.
-    expect([202, 204]).toContain((await deletion).status);
+    // Current main accepts the background directory purge after logical deletion.
+    expect((await deletion).status).toBe(202);
     await waitFor(p.disposed);
     expect(t.deps.sessionsRepo.findById(p.parentId)).toBeNull();
     expect(t.deps.sessionsRepo.findById(p.childId)).toBeNull();
