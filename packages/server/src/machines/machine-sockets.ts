@@ -127,6 +127,28 @@ export function refusedAnswer(machineId: string, status: number): Response {
   );
 }
 
+/** What a dial that found no socket is told, once one settle has been asked for. */
+export type StreamSettle =
+  { kind: "upgrading"; detail: string } | { kind: "incompatible"; detail: string };
+
+/** A machine being brought to this hub's build: a named state, not the same 502. */
+export function upgradingAnswer(detail: string): Response {
+  return unavailable(
+    503,
+    "machine_upgrading",
+    `This machine is being brought to this hub's build — ${detail}. Streams answer again when it is on it.`,
+  );
+}
+
+/** A machine that cannot be brought to this hub's build: the verdict, in the last step's words. */
+export function incompatibleAnswer(detail: string): Response {
+  return unavailable(
+    502,
+    "machine_incompatible",
+    `This machine cannot be brought to this hub's build — ${detail}.`,
+  );
+}
+
 /** What a caller's stream call hears back from a socket (or, for the event hub, from its upstream). */
 export interface Sink {
   onStart(status: number): void;
@@ -280,6 +302,12 @@ export class MachineSockets {
   readonly #failing = new Map<string, string>();
   readonly #dialTimeoutMs: number;
   readonly #announce: () => void;
+  /**
+   * What a dial that found no socket means to the Machines service. Absent — a relay built by a
+   * test, a page's own sockets before the service is up — a refusal and a failed dial are
+   * answered as they always were.
+   */
+  readonly #settle: ((machineId: string) => StreamSettle | null) | undefined;
   #closed = false;
 
   constructor(
@@ -292,10 +320,12 @@ export class MachineSockets {
        * next read of the list.
        */
       announce?: () => void;
+      settle?: (machineId: string) => StreamSettle | null;
     } = {},
   ) {
     this.#dialTimeoutMs = options.dialTimeoutMs ?? SOCKET_DIAL_TIMEOUT_MS;
     this.#announce = options.announce ?? (() => undefined);
+    this.#settle = options.settle;
   }
 
   /** Ends this generation's sockets, including a dial that settles after disposal. */
@@ -406,10 +436,16 @@ export class MachineSockets {
           // dial that failed says nothing about the build; the next stream tries again.
           if (err instanceof HandshakeRefused) {
             this.#failing.delete(machineId);
-            this.#refusedUntil.set(machineId, {
-              until: Date.now() + REFUSED_FOR_MS,
-              status: err.status,
-            });
+            // An ANSWERED refusal is remembered for a while: asking again on every stream would
+            // only repeat it. With the Machines service deciding, every stream goes through it
+            // instead, and its answer is the true one — a machine it just brought onto this
+            // hub's build must not be held at a refusal remembered before that.
+            if (this.#settle === undefined) {
+              this.#refusedUntil.set(machineId, {
+                until: Date.now() + REFUSED_FOR_MS,
+                status: err.status,
+              });
+            }
             this.#state(machineId, "refused", err.message);
             this.log(
               `[machines] no socket on ${machineId} (${err.message}); its streams are refused until it is updated`,
@@ -447,6 +483,18 @@ export class MachineSockets {
       }
       return { socket };
     } catch (err) {
+      // One action is asked for before the stream is answered: a machine whose process is on
+      // another build is brought onto this hub's, and the stream says where it stands — never
+      // the same 502 that says neither.
+      const settling = this.#settle?.(machineId) ?? null;
+      if (settling !== null) {
+        return {
+          answer:
+            settling.kind === "upgrading"
+              ? upgradingAnswer(settling.detail)
+              : incompatibleAnswer(settling.detail),
+        };
+      }
       if (err instanceof HandshakeRefused) return { answer: refusedAnswer(machineId, err.status) };
       if (err instanceof ServerPredatesSocket) {
         return { answer: unavailable(502, "machine_socket_unavailable", err.message) };

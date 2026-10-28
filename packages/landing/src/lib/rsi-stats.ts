@@ -37,7 +37,7 @@ export const RSI_TOOLKITS = [
 
 /**
  * One entry per benchmark the built-ins are drawn from, in core's order, with the ids of the
- * built-ins drawn from it: GDPevo's train and test halves are one benchmark and one entry.
+ * built-ins drawn from it: GDPEVO's six domains share one upstream and one entry.
  */
 export const BENCHMARKS = [
   {
@@ -61,7 +61,20 @@ export const BENCHMARKS = [
     href: "https://github.com/harbor-framework/terminal-bench",
   },
   {
-    ids: ["penguinharness-benchmark-gdpevo-train", "penguinharness-benchmark-gdpevo-test"],
+    ids: [
+      "penguinharness-benchmark-gdpevo-crm-train",
+      "penguinharness-benchmark-gdpevo-crm-test",
+      "penguinharness-benchmark-gdpevo-erp-train",
+      "penguinharness-benchmark-gdpevo-erp-test",
+      "penguinharness-benchmark-gdpevo-finance-train",
+      "penguinharness-benchmark-gdpevo-finance-test",
+      "penguinharness-benchmark-gdpevo-healthcare-train",
+      "penguinharness-benchmark-gdpevo-healthcare-test",
+      "penguinharness-benchmark-gdpevo-legal-train",
+      "penguinharness-benchmark-gdpevo-legal-test",
+      "penguinharness-benchmark-gdpevo-data-analysis-train",
+      "penguinharness-benchmark-gdpevo-data-analysis-test",
+    ],
     href: "https://github.com/Prism-Shadow/GDPevo",
   },
 ] as const;

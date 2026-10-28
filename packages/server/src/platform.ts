@@ -136,6 +136,7 @@ import {
   DesktopUpdateRoutes,
 } from "./http/routes/desktop.js";
 import { InstallRoutes } from "./http/routes/install.js";
+import { HandshakeRoutes } from "./http/routes/handshake.js";
 import { HmrRoutes } from "./hmr/routes.js";
 import { EventsRoutes } from "./http/routes/events.js";
 import { PluginRegistryRoutes, PluginRoutes } from "./http/routes/plugins.js";
@@ -212,6 +213,7 @@ export class Startup {
   @Use() private readonly machines!: Machines;
   @Use() private readonly errors!: Errors;
   @Use() private readonly projectConfig!: ProjectConfigStore;
+  @Use() private readonly agents!: AgentLifecycle;
 
   async setup() {
     // Every Project's config through the server's read path once, before anything opens one:
@@ -222,15 +224,27 @@ export class Startup {
     await this.projectConfig.migrateStoredConfigs().catch((err: unknown) => {
       this.errors.record({ source: "process", err, code: "config_migration_failed" });
     });
-    // Schedule scheduler: startup reconciliation (missed, don't backfill) + periodic scan.
-    await this.scheduler.start();
-    // Company mode's scheduler: same lifetime and the same startup rule (reconcile once,
-    // no backfill), only active while this App is.
-    await this.orgScheduler.start();
+    // Schedule scheduler: startup reconciliation (missed, don't backfill) + periodic scan; and
+    // company mode's scheduler, with the same lifetime and the same startup rule (reconcile
+    // once, no backfill), only active while this App is. Neither first pass is on the boot
+    // path: a pass can fire a missed slot, and a fire can reach the network (a model's
+    // credential refresh) before it is queued — the port is announced and local pages are
+    // served without waiting on it. Each pass still runs, here, as the platform comes up.
+    void this.scheduler.start().catch((err: unknown) => {
+      this.errors.record({ source: "process", err, code: "scheduler_start_failed" });
+    });
+    void this.orgScheduler.start().catch((err: unknown) => {
+      this.errors.record({ source: "process", err, code: "org_scheduler_start_failed" });
+    });
     // Startup adoption sweep: fold Trace-only Sessions into the index. Fire-and-forget —
     // a broken trace shard must not block the boot.
     void this.sessionService.adoptUnmanagedTraceSessions().catch((err: unknown) => {
       this.errors.record({ source: "process", err, code: "trace_adoption_failed" });
+    });
+    // Deleted Agents whose files a stopped process had not finished removing: removed now, in
+    // the background, the way the delete itself removes them.
+    void this.agents.resumeDeletions().catch((err: unknown) => {
+      this.errors.record({ source: "process", err, code: "agent_purge_failed" });
     });
     // Machines, in one sweep (machines/service.ts start()): a push here is a push everywhere,
     // so this App booting hands the same build on to any machine still carrying a different
@@ -480,6 +494,7 @@ export class CompanyModule {}
     HttpModule,
     WebModule,
     InstallRoutes,
+    HandshakeRoutes,
     VersionRoutes,
     HmrRoutes,
     DesktopRoutes,

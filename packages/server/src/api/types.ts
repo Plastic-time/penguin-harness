@@ -1447,6 +1447,41 @@ export interface AgentCreateResponse {
   agent: AgentSummary;
 }
 
+/**
+ * Where a deleted Agent's files stand. The Agent itself is gone the moment DELETE answers: its
+ * folder was moved out of the Project's agents directory in one rename, and every list and route
+ * stopped seeing it. What follows is the removal of that folder's contents in the background,
+ * which this reports.
+ */
+export interface AgentDeletionInfo {
+  /** Names this deletion (GET /api/projects/:projectId/agent-deletions/:deletionId). */
+  deletionId: string;
+  agentId: string;
+  /**
+   * `counting`: the folder is walked to learn how many entries it holds (`total` grows);
+   * `removing`: they are removed (`removed` grows towards `total`); `done`: nothing is left;
+   * `failed`: some entries could not be removed (`error` says why). What is left is tried again
+   * when the server next starts.
+   */
+  phase: "counting" | "removing" | "done" | "failed";
+  /** Entries found: so far while counting, then in all. Files and folders alike. */
+  total: number;
+  /** Entries removed so far. */
+  removed: number;
+  /** The first error the removal met, as the operating system worded it (`failed` only). */
+  error?: string;
+}
+
+/** DELETE /api/projects/:projectId/agents/:agentId (202). */
+export interface AgentDeleteResponse {
+  deletion: AgentDeletionInfo;
+}
+
+/** GET /api/projects/:projectId/agent-deletions/:deletionId. */
+export interface AgentDeletionResponse {
+  deletion: AgentDeletionInfo;
+}
+
 export interface AgentModelConfigDto {
   maxTokens?: number;
   thinkingLevel?: ThinkingLevelName;
@@ -2117,6 +2152,13 @@ export interface ArchivedSessionsQuery {
   /** One Project the user can open (404 `project_not_found` otherwise); absent = every Project they own or are a member of. */
   projectId?: string;
 }
+
+/**
+ * Which servers' groups GET /api/me/archived-sessions/groups answers with: `here` this server's
+ * alone, never waiting on a machine; `machines` the machines' alone. Absent: both, in one answer.
+ * The Web App asks the two apart, so a machine that answers nothing never holds this server's.
+ */
+export type ArchivedSessionGroupServers = "here" | "machines";
 
 /** One group of the archive page: one Workspace of one Project, on this server or on one machine. */
 export interface ArchivedSessionGroup {
@@ -5517,11 +5559,11 @@ export interface MachineEnvOnly {
 
 /**
  * A machine this server keeps connected, while it is being brought back. Attempts back off
- * from 5 s, doubling to a 5-minute cap, and stop after `maxAttempts` failures in a row (about a
- * quarter of an hour) — or after the first, when ssh refused in a way no retry fixes — until a
- * person asks for a Retry (`POST …/machines/:machineId/reconnect`). After three failures in a
- * row the connection check runs on its own, and its answer is what the page shows as the
- * explanation.
+ * from 15 s, doubling, and stop after `maxAttempts` failures in a row — or after the first, when
+ * ssh refused in a way no retry fixes, or when a person asks to stop
+ * (`POST …/machines/:machineId/stop-reconnecting`) — until a person asks for a Retry
+ * (`POST …/machines/:machineId/reconnect`). After three failures in a row the connection check
+ * runs on its own, and its answer is what the page shows as the explanation.
  */
 export interface MachineReconnect {
   /** When this streak began: the moment the machine was found not connected, or the Retry that began it again. */
@@ -5536,9 +5578,11 @@ export interface MachineReconnect {
    * The streak stopped, and nothing runs until a person asks for a Retry, which begins a new
    * one: `attempts` — `maxAttempts` failed in a row; `ssh` — ssh refused in a way retrying
    * cannot fix (a host key unknown or changed, an unusable key file, a key refused, a broken
-   * ssh config), said by `sshReason`.
+   * ssh config), said by `sshReason`; `cancelled` — a person stopped it. An attempt that was
+   * under way when it was stopped runs out: it may still connect the machine, and its failure
+   * is the `lastError`.
    */
-  gaveUp?: "attempts" | "ssh";
+  gaveUp?: "attempts" | "ssh" | "cancelled";
   /** The last attempt's failure in the far side's words; null before the first one fails. */
   lastError: string | null;
   /** Why ssh refused, when the last failure was ssh's own — for the page to say in its language. */

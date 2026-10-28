@@ -204,6 +204,11 @@ export interface AgentServer {
   release(): void;
   /** The next read matching `path` on that server (null: this one) answers 502 server_unreachable. */
   failNext(machineId: string | null, path: RegExp): void;
+  /**
+   * The next read matching `path` on that server (null: this one) answers a web page instead —
+   * what a dev server or proxy that did not forward the request serves.
+   */
+  pageNext(machineId: string | null, path: RegExp): void;
   /** Every request answered so far. */
   requests(): ReadonlyArray<{ method: string; path: string; machine: string | null }>;
   /** Holds the next request matching `path` on that server (null: this one) until `release()`. */
@@ -288,6 +293,8 @@ export function agentServer(
   const machineHolds = new Map<string, Array<() => void>>();
   /** Reads to fail once each, oldest first: the server they are on and the path they match. */
   let failures: Array<{ machine: string | null; path: RegExp }> = [];
+  /** Reads a page answers once each (a proxy that did not forward it), in the same shape. */
+  let pages: Array<{ machine: string | null; path: RegExp }> = [];
   /** Requests to hold once each, oldest first, with the answers they wait for. */
   let oneHolds: Array<{ machine: string | null; path: RegExp; waiting: Array<() => void> }> = [];
   /** This server's Agents: the one the suites configure, unless a test deleted it. */
@@ -653,6 +660,18 @@ export function agentServer(
     );
   };
 
+  /** The web page a read meets, if one was asked for its server and path (it answers one read only). */
+  const paged = (request: FetchRequest): Response | null => {
+    if (!isRead(request)) return null;
+    const match = pages.find((p) => p.machine === request.machine && p.path.test(request.path));
+    if (match === undefined) return null;
+    pages = pages.filter((p) => p !== match);
+    return new Response("<!doctype html><html><head></head><body></body></html>", {
+      status: 200,
+      headers: { "content-type": "text/html" },
+    });
+  };
+
   const fetch = stubFetch(async (request) => {
     if (held !== null && !isRead(request)) {
       await new Promise<void>((resolve) => held!.push(resolve));
@@ -666,7 +685,7 @@ export function agentServer(
       oneHolds = oneHolds.filter((h) => h !== oneHold);
       await new Promise<void>((resolve) => oneHold.waiting.push(resolve));
     }
-    const response = failed(request) ?? answer(request);
+    const response = failed(request) ?? paged(request) ?? answer(request);
     answered.push({ method: request.method, path: request.path, machine: request.machine });
     return response;
   });
@@ -707,6 +726,9 @@ export function agentServer(
     hold,
     failNext: (machine, path) => {
       failures.push({ machine, path });
+    },
+    pageNext: (machine, path) => {
+      pages.push({ machine, path });
     },
     requests: () => [...answered],
     holdNext: (machine, path) => {
