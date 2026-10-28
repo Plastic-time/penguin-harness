@@ -26,7 +26,6 @@ let release = gate();
 let disposed = 0;
 let runs = 0;
 let loads = 0;
-let bothLoading = gate();
 let sequence = 0;
 
 beforeAll(async () => {
@@ -34,7 +33,6 @@ beforeAll(async () => {
     loader: {
       async load(row) {
         loads++;
-        if (loads === 2) bothLoading.resolve();
         started.resolve();
         await release.promise;
         return fakeSession(row.sessionId, {
@@ -62,7 +60,6 @@ it.each(["neither", "session", "project", "recreated", "concurrent", "concurrent
     disposed = 0;
     runs = 0;
     loads = 0;
-    bothLoading = gate();
     const projectId = `owner-loading_${++sequence}`;
     expect((await api.post("/api/projects", { projectId, name: "Loading" })).status).toBe(201);
     const sessionId = uniqueSessionId();
@@ -79,7 +76,6 @@ it.each(["neither", "session", "project", "recreated", "concurrent", "concurrent
         : removal === "concurrent-load"
           ? api.post(`/api/sessions/${sessionId}/subagents/child/message`, { text: "work" })
           : undefined;
-    if (removal === "concurrent-load") await bothLoading.promise;
     try {
       if (removal === "session" || removal === "concurrent") {
         expect((await api.delete(`/api/sessions/${sessionId}`)).status).toBe(204);
@@ -103,7 +99,8 @@ it.each(["neither", "session", "project", "recreated", "concurrent", "concurrent
       expect(response.status).toBe(404);
       if (second) expect([404, 409]).toContain((await second).status);
       expect(runs).toBe(0);
-      expect(disposed).toBe(removal === "concurrent-load" ? 2 : 1);
+      expect(disposed).toBe(1);
+      expect(loads).toBe(1);
     }
     expect(
       t.deps.db.prepare("SELECT total FROM usage_records WHERE project_id = ?").all(projectId),

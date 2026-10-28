@@ -870,7 +870,9 @@ export class SessionManager {
     childSessionId: string,
     messages: AmspRecord[],
   ): Promise<SubagentMessageOutcome> {
-    const entry = await this.ensureEntry(sessionId);
+    // All runtime loads share the Task admission lock. Dispatch happens after it is
+    // released: a child resume must not hold up another Task's admission or cleanup.
+    const entry = await this.withLock(sessionId, () => this.ensureEntry(sessionId));
     entry.lastActivityMs = Date.now();
     const childRow = this.deps.sessions.findById(childSessionId);
     const resume =

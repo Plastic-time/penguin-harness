@@ -19,3 +19,5 @@ Removing only a Session still preserves its reported usage while the Project exi
 does not alter the deletion deadline or estimate provider charges.
 
 Runtime loading now captures the original Project lifetime before credential refresh and rejects results when the Project or Session is removed during loading, releasing the unused runtime.
+
+Concurrent Task and child-message requests shared one runtime load, so a later load could not replace a running Task's owner. Child message dispatch did not hold the Task admission lock.
