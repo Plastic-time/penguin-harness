@@ -39,7 +39,7 @@ let t: TestApp;
 let api: ReturnType<typeof apiClient>;
 let projects = 0;
 beforeAll(async () => {
-  t = await createTestApp();
+  t = await createTestApp({ loader: { load: async (row) => fakeSession(row.sessionId) } });
   api = apiClient(t.app, (await provisionUser(t.app, "owner")).cookie);
 });
 afterAll(async () => {
@@ -53,6 +53,8 @@ it.each([
   "removed-main",
   "removed-project",
   "removed-session-then-project",
+  "recreated-project",
+  "reloaded-recreated-project",
 ] as const)(
   "%s accounts for completed usage without reviving deleted data or streams",
   async (scenario) => {
@@ -61,7 +63,10 @@ it.each([
     expect((await api.post("/api/projects", { projectId, name: "Late usage" })).status).toBe(201);
     const main = scenario === "removed-main";
     const removeProject =
-      scenario === "removed-project" || scenario === "removed-session-then-project";
+      scenario === "removed-project" ||
+      scenario === "removed-session-then-project" ||
+      scenario === "recreated-project" ||
+      scenario === "reloaded-recreated-project";
     const childId = main ? parentId : uniqueSessionId();
     const textWriting = gate();
     const releaseText = gate();
@@ -239,6 +244,10 @@ it.each([
     }
     await textWriting.promise;
     expect(providerCompleted).toBe(true);
+    if (scenario === "reloaded-recreated-project") {
+      t.deps.manager.invalidateAgentRuntimes(projectId, "default_agent");
+      await t.deps.manager.preload(parentId);
+    }
     const published: AmspRecord[] = [];
     const unsubscribe = t.deps.channels.get(parentId).subscribe((event) => {
       if (!event.event) published.push(JSON.parse(event.data) as AmspRecord);
@@ -248,7 +257,7 @@ it.each([
         if (removeProject) vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
         deletion = Promise.resolve(
           api.delete(
-            scenario === "removed-project"
+            removeProject && scenario !== "removed-session-then-project"
               ? `/api/projects/${projectId}`
               : `/api/sessions/${parentId}`,
           ),
@@ -263,6 +272,11 @@ it.each([
         if (scenario === "removed-session-then-project")
           expect((await api.delete(`/api/projects/${projectId}`)).status).toBe(204);
         vi.useRealTimers();
+        if (scenario === "recreated-project" || scenario === "reloaded-recreated-project") {
+          expect(
+            (await api.post("/api/projects", { projectId, name: "New lifetime" })).status,
+          ).toBe(201);
+        }
       }
       published.length = 0;
       releaseText.resolve();

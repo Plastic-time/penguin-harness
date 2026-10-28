@@ -24,3 +24,5 @@ This preserves reported usage; it does not estimate unreported tokens or establi
 actual charge.
 
 Deletion coverage also exercises the bounded cleanup deadline when combined with child cleanup waiting.
+
+Late usage retained the original runtime's Project lifetime across runtime replacement, so recreating a Project under the same ID did not inherit the old child's usage.
