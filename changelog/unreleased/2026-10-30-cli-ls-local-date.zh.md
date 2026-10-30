@@ -3,6 +3,7 @@
 - **Date:** 2026-10-30
 - **Type:** fix
 - **Scope:** `cli`
+- **PR:** [#1409](https://github.com/Prism-Shadow/penguin-harness/pull/1409)
 
 [English](2026-10-30-cli-ls-local-date.md)
 
