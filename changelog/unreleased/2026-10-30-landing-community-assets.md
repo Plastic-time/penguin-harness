@@ -3,6 +3,7 @@
 - **Date:** 2026-10-30
 - **Type:** fix
 - **Scope:** `landing`
+- **PR:** [#1408](https://github.com/Prism-Shadow/penguin-harness/pull/1408)
 
 [中文版](2026-10-30-landing-community-assets.zh.md)
 
